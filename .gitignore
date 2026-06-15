@@ -1,0 +1,12 @@
+tools/
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+*.spec
+*.ps1
+*.lnk
