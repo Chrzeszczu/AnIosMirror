@@ -157,6 +157,13 @@ def is_mirroring(serial):
     return False
 
 
+def adb_kill_server():
+    """Kill the ADB server process to free the port and allow tools/ folder cleanup."""
+    adb = get_tool_path("adb")
+    if adb:
+        subprocess.run([adb, "kill-server"], capture_output=True, timeout=5)
+
+
 def get_connected_devices():
     code, out, _ = _adb("devices")
     if code != 0:

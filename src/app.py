@@ -289,6 +289,7 @@ class MainWindow(QMainWindow):
         self.airplay.stop()
         for dev in self.android_devices:
             ad.stop_mirror(dev["serial"])
+        ad.adb_kill_server()
         event.accept()
 
 
