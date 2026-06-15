@@ -34,17 +34,23 @@ if %errorlevel% neq 0 (
 )
 echo [OK] Dependencies installed
 
-:: ---------- Create desktop shortcut ----------
+:: ---------- Ask about desktop shortcut ----------
 echo.
-echo [..] Creating desktop shortcut...
-set "SHORTCUT=%USERPROFILE%\Desktop\AnIosMirror.lnk"
-
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=[Environment]::GetFolderPath('Desktop')+'\AnIosMirror.lnk'; $w=New-Object -ComObject WScript.Shell; $c=$w.CreateShortcut($s); $c.TargetPath='cmd.exe'; $c.Arguments='/c python main.py'; $c.WorkingDirectory='%~dp0'; $c.Description='AnIosMirror - Android / iOS Screen Mirroring'; $c.Save()"
-if %errorlevel% neq 0 (
-    echo [WARN] Could not create desktop shortcut (try running as Administrator)
-    goto :done
+echo Do you want to create a desktop shortcut?
+choice /c YN /m "Create shortcut"
+if %errorlevel% equ 1 (
+    echo.
+    echo [..] Creating desktop shortcut...
+    set "SHORTCUT=%USERPROFILE%\Desktop\AnIosMirror.lnk"
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=[Environment]::GetFolderPath('Desktop')+'\AnIosMirror.lnk'; $w=New-Object -ComObject WScript.Shell; $c=$w.CreateShortcut($s); $c.TargetPath='cmd.exe'; $c.Arguments='/c python main.py'; $c.WorkingDirectory='%~dp0'; $c.Description='AnIosMirror - Android / iOS Screen Mirroring'; $c.Save()"
+    if %errorlevel% neq 0 (
+        echo [WARN] Could not create desktop shortcut (try running as Administrator)
+    ) else (
+        echo [OK] Desktop shortcut created
+    )
+) else (
+    echo [..] Skipping desktop shortcut
 )
-echo [OK] Desktop shortcut created at %SHORTCUT%
 
 :: ---------- Done ----------
 :done
