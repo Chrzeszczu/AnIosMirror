@@ -37,24 +37,14 @@ echo [OK] Dependencies installed
 :: ---------- Create desktop shortcut ----------
 echo.
 echo [..] Creating desktop shortcut...
-set "SHORTCUT_PS1=%TEMP%\create_shortcut.ps1"
-set "SHORTCUT_PATH=%USERPROFILE%\Desktop\AnIosMirror.lnk"
-set "WORKING_DIR=%~dp0"
-set "MAIN_PY=%~dp0main.py"
+set "SHORTCUT=%USERPROFILE%\Desktop\AnIosMirror.lnk"
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-"$ws = New-Object -ComObject WScript.Shell;" ^
-"$sc = $ws.CreateShortcut('%SHORTCUT_PATH%');" ^
-"$sc.TargetPath = 'cmd.exe';" ^
-"$sc.Arguments = '/c cd /d \"%WORKING_DIR:\=\\%\" ^&^& python main.py';" ^
-"$sc.WorkingDirectory = '%WORKING_DIR:\=\\%';" ^
-"$sc.Description = 'AnIosMirror - Android / iOS Screen Mirroring';" ^
-"$sc.Save()"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=[Environment]::GetFolderPath('Desktop')+'\AnIosMirror.lnk'; $w=New-Object -ComObject WScript.Shell; $c=$w.CreateShortcut($s); $c.TargetPath='cmd.exe'; $c.Arguments='/c python main.py'; $c.WorkingDirectory='%~dp0'; $c.Description='AnIosMirror - Android / iOS Screen Mirroring'; $c.Save()"
 if %errorlevel% neq 0 (
     echo [WARN] Could not create desktop shortcut (try running as Administrator)
     goto :done
 )
-echo [OK] Desktop shortcut created at %SHORTCUT_PATH%
+echo [OK] Desktop shortcut created at %SHORTCUT%
 
 :: ---------- Done ----------
 :done
