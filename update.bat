@@ -7,12 +7,26 @@ echo      AnIosMirror - Updater
 echo ========================================
 echo.
 
-:: ---------- Pull latest code ----------
-echo [..] Pulling latest code from GitHub...
-git pull
-if %errorlevel% neq 0 (
-    echo [WARN] git pull failed. Skipping code update.
-    echo        Make sure git is installed and the repo was cloned, not downloaded as ZIP.
+:: ---------- Pull latest code (git only) ----------
+git --version >nul 2>&1
+if %errorlevel% equ 0 (
+    if exist ".git" (
+        echo [..] Pulling latest code from GitHub...
+        git pull
+        if %errorlevel% neq 0 (
+            echo [WARN] git pull failed (check your connection or auth)
+        ) else (
+            echo [OK] Code updated
+        )
+    ) else (
+        echo [..] Not a git repository - skipping code update
+        echo        Download the latest ZIP from:
+        echo        https://github.com/Chrzeszczu/AnIosMirror
+    )
+) else (
+    echo [..] Git not found - skipping code update
+    echo        Download the latest ZIP from:
+    echo        https://github.com/Chrzeszczu/AnIosMirror
 )
 
 :: ---------- Update Python dependencies ----------
@@ -38,6 +52,7 @@ echo Some tools are missing.
 echo Would you like to re-download all tools?
 choice /c YN /m "Re-download tools"
 if %errorlevel% equ 1 (
+    echo.
     echo [..] Re-downloading tools...
     python -c "import sys; sys.path.insert(0,'.'); from src.downloader import clean_tools, download_tools; clean_tools(); download_tools(print)"
     if %errorlevel% neq 0 (

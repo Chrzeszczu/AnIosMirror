@@ -47,7 +47,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("AnIosMirror")
-        self.setFixedSize(520, 600)
+        self.setFixedSize(520, 720)
 
         self.android_devices = []
         self.airplay = AirPlayReceiver()
@@ -105,8 +105,8 @@ class MainWindow(QMainWindow):
         fav_layout = QVBoxLayout(fav_group)
         fav_layout.setContentsMargins(4, 4, 4, 4)
         self.fav_list = QListWidget()
-        self.fav_list.setMinimumHeight(60)
-        self.fav_list.setMaximumHeight(100)
+        self.fav_list.setMinimumHeight(80)
+        self.fav_list.setMaximumHeight(160)
         fav_layout.addWidget(self.fav_list)
         fav_btn_row = QHBoxLayout()
         self.fav_connect_btn = QPushButton("Connect")
