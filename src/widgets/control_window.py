@@ -1,5 +1,5 @@
 import ctypes
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QCheckBox
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QCheckBox, QComboBox
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from src.backends import android as ad
 
@@ -9,6 +9,11 @@ class MirrorControlWindow(QWidget):
     aot_changed = pyqtSignal(str, bool)
     status_message = pyqtSignal(str, str)
 
+    _NORMAL_W = 210
+    _NORMAL_H = 250
+    _COLLAPSED_W = 30
+    _COLLAPSED_H = 26
+
     def __init__(self, device_name, serial, aot_default=True, media_dir=None, parent=None):
         super().__init__(parent)
         self._serial = serial
@@ -17,10 +22,12 @@ class MirrorControlWindow(QWidget):
         self._hwnd = None
         self._recording = False
         self._paused = False
+        self._collapsed = False
+        self._side = "right"
 
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
-        self.setFixedSize(210, 230)
+        self.setFixedSize(self._NORMAL_W, self._NORMAL_H)
         self.setStyleSheet("""
             MirrorControlWindow {
                 background-color: #2d2d2d;
@@ -32,19 +39,25 @@ class MirrorControlWindow(QWidget):
         layout = QVBoxLayout(self)
         layout.setSpacing(4)
 
+        # Content that gets hidden on collapse
+        self._content = QWidget()
+        content_layout = QVBoxLayout(self._content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(4)
+
         lbl = QLabel(device_name)
         lbl.setStyleSheet("font-weight: bold; font-size: 11px; color: #eee;")
-        layout.addWidget(lbl)
+        content_layout.addWidget(lbl)
 
         self.aot = QCheckBox("Always on Top")
         self.aot.setStyleSheet("color: #ccc; font-size: 10px;")
         self.aot.setChecked(aot_default)
         self.aot.stateChanged.connect(self._on_aot)
-        layout.addWidget(self.aot)
+        content_layout.addWidget(self.aot)
 
         self.screenshot_btn = QPushButton("Screenshot")
         self.screenshot_btn.clicked.connect(self._take_screenshot)
-        layout.addWidget(self.screenshot_btn)
+        content_layout.addWidget(self.screenshot_btn)
 
         rec_row = QHBoxLayout()
         self.rec_btn = QPushButton("Record")
@@ -54,13 +67,40 @@ class MirrorControlWindow(QWidget):
         self.pause_btn.setEnabled(False)
         self.pause_btn.clicked.connect(self._toggle_pause)
         rec_row.addWidget(self.pause_btn)
-        layout.addLayout(rec_row)
+        content_layout.addLayout(rec_row)
 
-        layout.addStretch()
+        content_layout.addStretch()
 
         self.stop_btn = QPushButton("Stop Mirror")
         self.stop_btn.clicked.connect(lambda: self.stop_requested.emit(self._serial))
-        layout.addWidget(self.stop_btn)
+        content_layout.addWidget(self.stop_btn)
+
+        # Bottom row: hide checkbox + side selector
+        bottom_row = QHBoxLayout()
+        self.hide_cb = QCheckBox("Hide Menu")
+        self.hide_cb.setStyleSheet("color: #999; font-size: 9px;")
+        self.hide_cb.stateChanged.connect(self._on_hide_changed)
+        bottom_row.addWidget(self.hide_cb)
+        bottom_row.addStretch()
+        side_lbl = QLabel("Side:")
+        side_lbl.setStyleSheet("color: #999; font-size: 9px;")
+        bottom_row.addWidget(side_lbl)
+        self.side_combo = QComboBox()
+        self.side_combo.addItems(["Right", "Left"])
+        self.side_combo.setStyleSheet("font-size: 9px;")
+        self.side_combo.currentTextChanged.connect(self._on_side_changed)
+        bottom_row.addWidget(self.side_combo)
+        content_layout.addLayout(bottom_row)
+
+        layout.addWidget(self._content)
+
+        # Expand button for collapsed state
+        self._expand_btn = QPushButton("☰")
+        self._expand_btn.setFixedSize(26, 22)
+        self._expand_btn.setStyleSheet("font-size: 14px; color: #ccc;")
+        self._expand_btn.clicked.connect(self._toggle_collapse)
+        self._expand_btn.hide()
+        layout.addWidget(self._expand_btn, 0, Qt.AlignmentFlag.AlignCenter)
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._track)
@@ -86,11 +126,9 @@ class MirrorControlWindow(QWidget):
         self.aot.blockSignals(True)
         self.aot.setChecked(enabled)
         self.aot.blockSignals(False)
-
         if self._hwnd is not None:
             ad.set_window_always_on_top_by_hwnd(self._hwnd, enabled)
         self._set_self_topmost(enabled)
-
         if emit:
             self.aot_changed.emit(self._serial, enabled)
 
@@ -106,6 +144,29 @@ class MirrorControlWindow(QWidget):
         if visible:
             self.show()
             QTimer.singleShot(0, self._track)
+
+    def _on_hide_changed(self, state):
+        self._collapsed = state == 2
+        if self._collapsed:
+            self._content.hide()
+            self._expand_btn.show()
+            self.setFixedSize(self._COLLAPSED_W, self._COLLAPSED_H)
+        else:
+            self._expand_btn.hide()
+            self._content.show()
+            self.setFixedSize(self._NORMAL_W, self._NORMAL_H)
+        self._track()
+
+    def _toggle_collapse(self):
+        self.hide_cb.blockSignals(True)
+        self.hide_cb.setChecked(not self._collapsed)
+        self.hide_cb.blockSignals(False)
+        self._on_hide_changed(2 if not self._collapsed else 0)
+
+    def _on_side_changed(self, text):
+        self._side = text.lower()
+        if not self._collapsed:
+            self._track()
 
     def _take_screenshot(self):
         if not self._media_dir or self._hwnd is None:
@@ -140,7 +201,7 @@ class MirrorControlWindow(QWidget):
             self.pause_btn.setEnabled(False)
             self.pause_btn.setText("Pause")
             if filepath:
-                self.status_message.emit(self._serial, f"Recording saved")
+                self.status_message.emit(self._serial, "Recording saved")
             else:
                 self.status_message.emit(self._serial, f"Record failed: {error}")
 
@@ -163,7 +224,12 @@ class MirrorControlWindow(QWidget):
         if rect is None:
             self.stop_requested.emit(self._serial)
             return
-        x = rect["x"] + rect["w"] + 8
+        mw = self.width()
+        mh = self.height()
+        if self._side == "right":
+            x = rect["x"] + rect["w"] + 8
+        else:
+            x = rect["x"] - mw - 8
         y = rect["y"] + 30
         self.move(x, y)
         try:
