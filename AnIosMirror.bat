@@ -1,6 +1,6 @@
 @echo off
 cd /d "%~dp0"
-python main.py
+pythonw main.pyw
 if errorlevel 1 (
     echo.
     echo An error occurred. Please check the output above.

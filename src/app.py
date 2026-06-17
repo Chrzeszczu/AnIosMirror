@@ -5,7 +5,8 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QListWidget, QListWidgetItem, QGroupBox,
     QProgressBar, QMessageBox, QDialog, QLineEdit, QCheckBox,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSettings
+from PyQt6.QtGui import QGuiApplication
 
 from src.downloader import check_tools, download_tools, get_tool_path
 from src.backends import android as ad
@@ -51,6 +52,9 @@ class MainWindow(QMainWindow):
         self.android_devices = []
         self.airplay = AirPlayReceiver()
         self._scan_worker = None
+        self._settings = QSettings("AnIosMirror", "AnIosMirror")
+
+        self._restore_geometry()
 
         self._build_ui()
         self._check_tools()
@@ -285,7 +289,22 @@ class MainWindow(QMainWindow):
         self.airplay_start_btn.setEnabled(True)
         self.airplay_stop_btn.setEnabled(False)
 
+    def _restore_geometry(self):
+        geom = self._settings.value("geometry")
+        if geom is not None:
+            self.restoreGeometry(geom)
+        within = False
+        cursor_pos = QGuiApplication.primaryScreen().virtualGeometry().center()
+        for screen in QGuiApplication.screens():
+            if screen.geometry().intersects(self.frameGeometry()):
+                within = True
+            if screen.geometry().contains(QGuiApplication.cursor().pos()):
+                cursor_pos = screen.geometry().center()
+        if not within:
+            self.move(cursor_pos.x() - self.width() // 2, cursor_pos.y() - self.height() // 2)
+
     def closeEvent(self, event):
+        self._settings.setValue("geometry", self.saveGeometry())
         self.airplay.stop()
         for dev in self.android_devices:
             ad.stop_mirror(dev["serial"])

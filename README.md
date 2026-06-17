@@ -46,7 +46,7 @@ Then double-click the **AnIosMirror** shortcut on your desktop.
 
 ```cmd
 pip install -r requirements.txt
-python main.py
+pythonw main.pyw
 ```
 
 ---
@@ -77,7 +77,7 @@ python main.py
 
 ```
 AnIosMirror/
-├── main.py                 # Application entry point
+├── main.pyw                 # Application entry point (uses pythonw, no console)
 ├── install.bat             # One-click installer
 ├── requirements.txt        # Python dependencies
 ├── src/
