@@ -24,6 +24,11 @@ TOOLS = {
         "subdir": None,
         "files": ["uxplay-windows.exe", "mDNSResponder.exe"],
     },
+    "ffmpeg": {
+        "url": "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip",
+        "subdir": None,
+        "files": ["ffmpeg.exe"],
+    },
 }
 
 
@@ -64,16 +69,23 @@ def download_tools(progress_callback=None):
 
         if url.endswith(".zip"):
             z = zipfile.ZipFile(io.BytesIO(resp.content))
-            prefix = f"{info['subdir']}/" if info["subdir"] else ""
-            for entry in z.namelist():
-                if entry.endswith("/"):
-                    continue
-                fname = entry[len(prefix):] if entry.startswith(prefix) else entry
-                if "/" in fname:
-                    subdir = TOOLS_DIR / fname
-                    subdir.parent.mkdir(parents=True, exist_ok=True)
-                data = z.read(entry)
-                (TOOLS_DIR / fname).write_bytes(data)
+            if name == "ffmpeg":
+                for entry in z.namelist():
+                    if entry.endswith("/bin/ffmpeg.exe"):
+                        data = z.read(entry)
+                        (TOOLS_DIR / "ffmpeg.exe").write_bytes(data)
+                        break
+            else:
+                prefix = f"{info['subdir']}/" if info["subdir"] else ""
+                for entry in z.namelist():
+                    if entry.endswith("/"):
+                        continue
+                    fname = entry[len(prefix):] if entry.startswith(prefix) else entry
+                    if "/" in fname:
+                        subdir = TOOLS_DIR / fname
+                        subdir.parent.mkdir(parents=True, exist_ok=True)
+                    data = z.read(entry)
+                    (TOOLS_DIR / fname).write_bytes(data)
             z.close()
         else:
             (TOOLS_DIR / info["files"][0]).write_bytes(resp.content)

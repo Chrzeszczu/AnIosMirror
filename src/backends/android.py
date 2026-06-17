@@ -308,62 +308,12 @@ def take_screenshot(serial, output_dir):
 _recording_processes = {}
 
 
-def start_recording(serial, output_dir):
-    """Start screen recording on device via adb shell screenrecord.
-    Saves to output_dir/recordings/DD-MM-YYYY/HH-MM-SS_DD-MM-YYYY.mp4.
-    Returns (local_path, None) or (None, error_message).
-    """
-    from datetime import datetime
-    now = datetime.now()
-    date_str = now.strftime("%d-%m-%Y")
-    time_str = now.strftime("%H-%M-%S")
-
-    folder = Path(output_dir) / "recordings" / date_str
-    folder.mkdir(parents=True, exist_ok=True)
-
-    filename = f"{time_str}_{date_str}.mp4"
-    remote_path = f"/sdcard/{filename}"
-    local_path = str(folder / filename)
-
-    adb = get_tool_path("adb")
-    if not adb:
-        return None, "ADB not found"
-
-    proc = subprocess.Popen(
-        [adb, "-s", serial, "shell", "screenrecord", "--verbose", remote_path],
-        creationflags=subprocess.CREATE_NO_WINDOW,
-    )
-    _recording_processes[serial] = {"proc": proc, "remote": remote_path, "local": local_path}
-    return local_path, None
-
-
-def stop_recording(serial):
-    """Stop screen recording on device, pull the file, clean up remote.
-    Returns (local_path, None) or (None, error_message). Blocks during pull.
-    """
-    if serial not in _recording_processes:
-        return None, "Not recording"
-
-    info = _recording_processes[serial]
+def _pull_and_clean(serial, info):
+    """Helper: wait for process, pull file, remove remote, return (path|None, error|None)."""
     proc = info["proc"]
     remote = info["remote"]
     local = info["local"]
-    del _recording_processes[serial]
-
     adb = get_tool_path("adb")
-    if adb:
-        result = subprocess.run(
-            [adb, "-s", serial, "shell", "pgrep", "-f", "screenrecord"],
-            capture_output=True, text=True, timeout=5,
-            creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            pid = result.stdout.strip().split("\n")[-1]
-            subprocess.run(
-                [adb, "-s", serial, "shell", "kill", "-2", pid],
-                capture_output=True, timeout=5,
-                creationflags=subprocess.CREATE_NO_WINDOW,
-            )
 
     try:
         proc.wait(timeout=10)
@@ -388,37 +338,135 @@ def stop_recording(serial):
     return None, "File not found after pull"
 
 
-def pause_recording(serial):
-    """Pause screen recording on device (SIGSTOP)."""
-    return _signal_recording(serial, "-19")
-
-
-def resume_recording(serial):
-    """Resume paused screen recording (SIGCONT)."""
-    return _signal_recording(serial, "-18")
-
-
-def is_recording(serial):
-    return serial in _recording_processes
-
-
-def _signal_recording(serial, signal):
-    if serial not in _recording_processes:
-        return False
+def _stop_current(serial):
+    """Send SIGINT to the current screenrecord process on device."""
     adb = get_tool_path("adb")
     if not adb:
-        return False
+        return
     result = subprocess.run(
-        [adb, "-s", serial, "shell", "pgrep", "-f", "screenrecord"],
+        [adb, "-s", serial, "shell", "pgrep", "screenrecord"],
         capture_output=True, text=True, timeout=5,
         creationflags=subprocess.CREATE_NO_WINDOW,
     )
-    if result.returncode != 0 or not result.stdout.strip():
-        return False
-    pid = result.stdout.strip().split("\n")[-1]
-    subprocess.run(
-        [adb, "-s", serial, "shell", "kill", signal, pid],
-        capture_output=True, timeout=5,
+    if result.returncode == 0 and result.stdout.strip():
+        pid = result.stdout.strip().split("\n")[-1]
+        subprocess.run(
+            [adb, "-s", serial, "shell", "kill", "-2", pid],
+            capture_output=True, timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+
+
+def _make_filename(output_dir, suffix=""):
+    from datetime import datetime
+    now = datetime.now()
+    date_str = now.strftime("%d-%m-%Y")
+    time_str = now.strftime("%H-%M-%S")
+    folder = Path(output_dir) / "recordings" / date_str
+    folder.mkdir(parents=True, exist_ok=True)
+    filename = f"{time_str}_{date_str}{suffix}.mp4"
+    return str(folder / filename), f"/sdcard/{filename}"
+
+
+def start_recording(serial, output_dir):
+    """Start screen recording segment.
+    Returns (local_path, None) or (None, error_message).
+    """
+    local_path, remote_path = _make_filename(output_dir)
+    adb = get_tool_path("adb")
+    if not adb:
+        return None, "ADB not found"
+
+    proc = subprocess.Popen(
+        [adb, "-s", serial, "shell", "screenrecord", "--verbose", remote_path],
         creationflags=subprocess.CREATE_NO_WINDOW,
     )
-    return True
+    data = _recording_processes.setdefault(serial, {"segments": [], "current": None})
+    data["current"] = {"proc": proc, "remote": remote_path, "local": local_path}
+    return local_path, None
+
+
+def pause_recording(serial):
+    """Pause: stop current segment, pull and save it, return its path."""
+    data = _recording_processes.get(serial)
+    if not data or not data["current"]:
+        return None, "Not recording"
+    cur = data["current"]
+    data["current"] = None
+    _stop_current(serial)
+    local, err = _pull_and_clean(serial, cur)
+    if local:
+        data["segments"].append(local)
+    return local, err
+
+
+def resume_recording(serial, output_dir):
+    """Resume: start a new recording segment."""
+    return start_recording(serial, output_dir)
+
+
+def stop_recording(serial):
+    """Stop all segments, return (file_info, error).
+    file_info is a single path if no pauses, or a merged path, or a list of paths.
+    """
+    data = _recording_processes.get(serial)
+    if not data:
+        return None, "Not recording"
+    del _recording_processes[serial]
+
+    files = list(data["segments"])
+    if data["current"]:
+        _stop_current(serial)
+        local, _ = _pull_and_clean(serial, data["current"])
+        if local:
+            files.append(local)
+
+    if not files:
+        return None, "No files recorded"
+    if len(files) == 1:
+        return files[0], None
+    # Multiple segments → try merging
+    merged, err = _merge_segments(files)
+    if merged:
+        return merged, None
+    return files, f"Merging failed ({err}), {len(files)} segments saved"
+
+
+def _merge_segments(segments):
+    """Merge multiple MP4 segments into one via ffmpeg concat demuxer.
+    Returns (merged_path, None) or (None, error).
+    """
+    ffmpeg = get_tool_path("ffmpeg")
+    if not ffmpeg:
+        return None, "ffmpeg not found"
+
+    import tempfile, os
+    try:
+        list_fd, list_path = tempfile.mkstemp(suffix=".txt", prefix="concat_")
+        with os.fdopen(list_fd, "w") as f:
+            for seg in segments:
+                f.write(f"file '{seg}'" + "\n")
+        first = Path(segments[0])
+        merged_path = str(first.parent / f"{first.stem}_merged{first.suffix}")
+        result = subprocess.run(
+            [ffmpeg, "-f", "concat", "-safe", "0", "-i", list_path,
+             "-c", "copy", "-y", merged_path],
+            capture_output=True, text=True, timeout=120,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        if result.returncode != 0:
+            Path(merged_path).unlink(missing_ok=True)
+            return None, result.stderr.strip()[:200]
+        for seg in segments:
+            Path(seg).unlink(missing_ok=True)
+        return merged_path, None
+    finally:
+        try:
+            Path(list_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+
+def is_recording(serial):
+    data = _recording_processes.get(serial)
+    return bool(data and data["current"])

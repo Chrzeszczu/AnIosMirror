@@ -1,13 +1,31 @@
 import ctypes
+from ctypes import wintypes
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QCheckBox, QComboBox
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from src.backends import android as ad
+
+_user32 = ctypes.windll.user32
+
+WINEVENTPROC = ctypes.WINFUNCTYPE(
+    None, wintypes.HANDLE, wintypes.DWORD,
+    wintypes.HWND, wintypes.LONG, wintypes.LONG,
+    wintypes.DWORD, wintypes.DWORD,
+)
+_EVENT_OBJECT_LOCATIONCHANGE = 0x800B
+_WINEVENT_OUTOFCONTEXT = 0x0001
+
+_user32.SetWinEventHook.argtypes = [
+    wintypes.UINT, wintypes.UINT, wintypes.HMODULE,
+    WINEVENTPROC, wintypes.DWORD, wintypes.DWORD, wintypes.DWORD,
+]
+_user32.SetWinEventHook.restype = wintypes.HANDLE
 
 
 class MirrorControlWindow(QWidget):
     stop_requested = pyqtSignal(str)
     aot_changed = pyqtSignal(str, bool)
     status_message = pyqtSignal(str, str)
+    _hwnd_moved = pyqtSignal()
 
     _NORMAL_W = 210
     _NORMAL_H = 250
@@ -24,6 +42,11 @@ class MirrorControlWindow(QWidget):
         self._paused = False
         self._collapsed = False
         self._side = "right"
+        self._hook = None
+        self._hook_proc = None
+        self._rec_start_time = None
+
+        self._hwnd_moved.connect(self._track)
 
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
@@ -69,6 +92,16 @@ class MirrorControlWindow(QWidget):
         rec_row.addWidget(self.pause_btn)
         content_layout.addLayout(rec_row)
 
+        self._rec_time_label = QLabel("00:00")
+        self._rec_time_label.setStyleSheet("color: #e44; font-size: 11px; font-weight: bold;")
+        self._rec_time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._rec_time_label.hide()
+        content_layout.addWidget(self._rec_time_label)
+
+        self._rec_timer = QTimer(self)
+        self._rec_timer.timeout.connect(self._update_rec_time)
+        self._rec_timer.setInterval(1000)
+
         content_layout.addStretch()
 
         self.stop_btn = QPushButton("Stop Mirror")
@@ -104,14 +137,39 @@ class MirrorControlWindow(QWidget):
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._track)
-        self._timer.start(50)
+        self._timer.start(500)
 
     def set_hwnd(self, hwnd):
+        self._uninstall_move_hook()
         self._hwnd = hwnd
+        self._install_move_hook(hwnd)
         self._track()
         if self.aot.isChecked():
             ad.set_window_always_on_top_by_hwnd(hwnd, True)
             self._set_self_topmost(True)
+
+    def _install_move_hook(self, target_hwnd):
+        try:
+            proc = WINEVENTPROC(lambda hHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime: (
+                self._hwnd_moved.emit()
+                if hwnd == target_hwnd and idObject == 0 else None
+            ))
+            self._hook_proc = proc
+            self._hook = _user32.SetWinEventHook(
+                _EVENT_OBJECT_LOCATIONCHANGE, _EVENT_OBJECT_LOCATIONCHANGE,
+                0, proc, 0, 0, _WINEVENT_OUTOFCONTEXT,
+            )
+        except Exception:
+            self._hook = None
+
+    def _uninstall_move_hook(self):
+        if self._hook:
+            try:
+                _user32.UnhookWinEvent(self._hook)
+            except Exception:
+                pass
+            self._hook = None
+        self._hook_proc = None
 
     def set_aot(self, enabled):
         self._apply_aot(enabled, emit=False)
@@ -191,33 +249,59 @@ class MirrorControlWindow(QWidget):
                 return
             self._recording = True
             self._paused = False
+            self._rec_start_time = __import__('time').time()
             self.rec_btn.setText("Stop Recording")
             self.pause_btn.setEnabled(True)
             self.pause_btn.setText("Pause")
+            self._rec_time_label.setText("00:00")
+            self._rec_time_label.show()
+            self._rec_timer.start()
             self.status_message.emit(self._serial, "Recording started")
         else:
-            filepath, error = ad.stop_recording(self._serial)
+            result, error = ad.stop_recording(self._serial)
             self._recording = False
             self._paused = False
+            self._rec_start_time = None
+            self._pause_start = 0.0
             self.rec_btn.setText("Record")
             self.pause_btn.setEnabled(False)
             self.pause_btn.setText("Pause")
-            if filepath:
+            self._rec_timer.stop()
+            self._rec_time_label.hide()
+            if isinstance(result, list):
+                self.status_message.emit(self._serial, f"Saved {len(result)} segment(s)")
+            elif result:
                 self.status_message.emit(self._serial, "Recording saved")
             else:
                 self.status_message.emit(self._serial, f"Record failed: {error}")
 
     def _toggle_pause(self):
         if not self._paused:
-            if ad.pause_recording(self._serial):
+            local, error = ad.pause_recording(self._serial)
+            if local:
                 self._paused = True
+                self._pause_start = __import__('time').time()
                 self.pause_btn.setText("Resume")
+                self._rec_timer.stop()
                 self.status_message.emit(self._serial, "Recording paused")
+            else:
+                self.status_message.emit(self._serial, f"Pause failed: {error}")
         else:
-            if ad.resume_recording(self._serial):
+            local, error = ad.resume_recording(self._serial, self._media_dir)
+            if local:
                 self._paused = False
+                self._rec_start_time += __import__('time').time() - self._pause_start
                 self.pause_btn.setText("Pause")
+                self._rec_timer.start()
                 self.status_message.emit(self._serial, "Recording resumed")
+            else:
+                self.status_message.emit(self._serial, f"Resume failed: {error}")
+
+    def _update_rec_time(self):
+        if not self._rec_start_time:
+            return
+        elapsed = int(__import__('time').time() - self._rec_start_time)
+        self._rec_time_label.setText(f"{elapsed // 60:02d}:{elapsed % 60:02d}")
 
     def _track(self):
         if not self._hwnd:
@@ -246,6 +330,7 @@ class MirrorControlWindow(QWidget):
 
     def cleanup(self):
         self._timer.stop()
+        self._uninstall_move_hook()
         if self._recording:
             ad.stop_recording(self._serial)
         self._hwnd = None
