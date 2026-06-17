@@ -54,9 +54,8 @@ class MainWindow(QMainWindow):
         self._scan_worker = None
         self._settings = QSettings("AnIosMirror", "AnIosMirror")
 
-        self._restore_geometry()
-
         self._build_ui()
+        QTimer.singleShot(0, self._restore_geometry)
         self._check_tools()
 
         self._mirror_status_timer = QTimer()
@@ -290,18 +289,24 @@ class MainWindow(QMainWindow):
         self.airplay_stop_btn.setEnabled(False)
 
     def _restore_geometry(self):
-        geom = self._settings.value("geometry")
-        if geom is not None:
-            self.restoreGeometry(geom)
-        within = False
-        cursor_pos = QGuiApplication.primaryScreen().virtualGeometry().center()
-        for screen in QGuiApplication.screens():
-            if screen.geometry().intersects(self.frameGeometry()):
-                within = True
-            if screen.geometry().contains(QGuiApplication.cursor().pos()):
-                cursor_pos = screen.geometry().center()
-        if not within:
-            self.move(cursor_pos.x() - self.width() // 2, cursor_pos.y() - self.height() // 2)
+        try:
+            geom = self._settings.value("geometry")
+            if geom is not None:
+                self.restoreGeometry(geom)
+            within = False
+            screens = QGuiApplication.screens()
+            if not screens:
+                return
+            cursor_pos = screens[0].geometry().center()
+            for screen in screens:
+                if screen.geometry().intersects(self.geometry()):
+                    within = True
+                if screen.geometry().contains(QGuiApplication.cursor().pos()):
+                    cursor_pos = screen.geometry().center()
+            if not within:
+                self.move(cursor_pos.x() - self.width() // 2, cursor_pos.y() - self.height() // 2)
+        except Exception:
+            pass  # geometry restore is best-effort
 
     def closeEvent(self, event):
         self._settings.setValue("geometry", self.saveGeometry())
@@ -313,9 +318,16 @@ class MainWindow(QMainWindow):
 
 
 def main():
-    os.environ["PATH"] = TOOLS_DIR + os.pathsep + os.environ.get("PATH", "")
-    app = QApplication(sys.argv)
-    app.setStyle("Fusion")
-    w = MainWindow()
-    w.show()
-    return app.exec()
+    try:
+        os.environ["PATH"] = TOOLS_DIR + os.pathsep + os.environ.get("PATH", "")
+        app = QApplication(sys.argv)
+        app.setStyle("Fusion")
+        w = MainWindow()
+        w.show()
+        return app.exec()
+    except Exception as e:
+        import traceback
+        log_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "error.log")
+        with open(log_path, "w") as f:
+            traceback.print_exc(file=f)
+        raise
