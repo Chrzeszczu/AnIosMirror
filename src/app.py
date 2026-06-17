@@ -500,7 +500,7 @@ class MainWindow(QMainWindow):
             return
         self._retry_find_and_attach(serial, name, quality_name=self._last_quality)
 
-    def _retry_find_and_attach(self, serial, name, retries=15, quality_name=None):
+    def _retry_find_and_attach(self, serial, name, retries=30, quality_name=None):
         self.android_status.setText(f"Starting mirror for {name}...")
         screen = self.screen()
         if not screen:
@@ -512,6 +512,12 @@ class MainWindow(QMainWindow):
                 self.android_status.setText(f"Mirror started, but could not attach controls to {name}")
                 return
             hwnd = ad.find_mirror_window(name)
+            if hwnd is None and serial:
+                hwnd = ad.find_mirror_window(serial)
+            if hwnd is None:
+                ip_part = serial.split(":")[0] if ":" in serial else None
+                if ip_part:
+                    hwnd = ad.find_mirror_window(ip_part)
             if hwnd is not None:
                 ad.move_hwnd_to_screen_center(hwnd, sg.x(), sg.y(), sg.width(), sg.height())
                 quality_options = self._get_control_quality_options()
