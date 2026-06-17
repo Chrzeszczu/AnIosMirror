@@ -143,7 +143,7 @@ def build_quality_args(quality):
         args.extend(["--max-fps", str(mf)])
     enc = quality.get("encoder", "")
     if enc and enc.lower() not in ("auto", ""):
-        args.extend(["--video-encoder", enc])
+        args.extend(["--video-codec", enc])
     return args
 
 
