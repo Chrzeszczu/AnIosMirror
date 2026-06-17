@@ -186,13 +186,20 @@ def set_window_always_on_top(title_substr, enabled):
 
 def set_window_always_on_top_by_hwnd(hwnd, enabled):
     try:
-        HWND_TOPMOST = -1
-        HWND_NOTOPMOST = -2
-        flags = wintypes.UINT(0x0001 | 0x0002)  # SWP_NOSIZE | SWP_NOMOVE
-        ctypes.windll.user32.SetWindowPos(
-            hwnd,
-            HWND_TOPMOST if enabled else HWND_NOTOPMOST,
-            0, 0, 0, 0, flags
+        SWP_NOSIZE = 0x0001
+        SWP_NOMOVE = 0x0002
+        user32 = ctypes.windll.user32
+        user32.SetWindowPos.argtypes = [
+            wintypes.HWND, wintypes.HWND,
+            ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+            wintypes.UINT,
+        ]
+        user32.SetWindowPos.restype = wintypes.BOOL
+        user32.SetWindowPos(
+            wintypes.HWND(hwnd),
+            wintypes.HWND(-1 if enabled else -2),
+            0, 0, 0, 0,
+            wintypes.UINT(SWP_NOSIZE | SWP_NOMOVE),
         )
     except Exception:
         pass

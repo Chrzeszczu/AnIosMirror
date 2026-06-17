@@ -7,7 +7,7 @@ class MirrorControlWindow(QWidget):
     stop_requested = pyqtSignal(str)
     aot_changed = pyqtSignal(str, bool)
 
-    def __init__(self, device_name, serial, aot_default=False, parent=None):
+    def __init__(self, device_name, serial, aot_default=True, parent=None):
         super().__init__(parent)
         self._serial = serial
         self._device_name = device_name
@@ -41,11 +41,16 @@ class MirrorControlWindow(QWidget):
     def set_hwnd(self, hwnd):
         self._hwnd = hwnd
         self._track()
+        if self.aot.isChecked():
+            ad.set_window_always_on_top_by_hwnd(hwnd, True)
 
     def set_aot(self, enabled):
         self.aot.blockSignals(True)
         self.aot.setChecked(enabled)
         self.aot.blockSignals(False)
+
+    def closeEvent(self, event):
+        event.ignore()
 
     def _on_aot(self, state):
         enabled = state == 2

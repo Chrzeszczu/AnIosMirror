@@ -355,7 +355,7 @@ class MainWindow(QMainWindow):
             hwnd = ad.find_mirror_window(name)
             if hwnd is not None:
                 ad.move_hwnd_to_screen_center(hwnd, sg.x(), sg.y(), sg.width(), sg.height())
-                cw = MirrorControlWindow(name, serial, aot_default=False)
+                cw = MirrorControlWindow(name, serial, aot_default=True)
                 cw.set_hwnd(hwnd)
                 cw.stop_requested.connect(self._stop_android_for)
                 cw.aot_changed.connect(self._on_ctrl_aot_changed)
