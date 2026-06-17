@@ -414,13 +414,12 @@ def stop_recording(serial):
         return None, "Not recording"
     del _recording_processes[serial]
 
-    files = []
+    files = list(data["segments"])
     if data["current"]:
         _stop_current(serial)
         local, _ = _pull_and_clean(serial, data["current"])
         if local:
             files.append(local)
-    files.extend(data["segments"])
 
     if not files:
         return None, "No files recorded"
