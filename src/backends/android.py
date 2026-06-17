@@ -9,7 +9,8 @@ def _adb(*args):
     adb = get_tool_path("adb")
     if not adb:
         raise RuntimeError("ADB not found. Download tools first.")
-    result = subprocess.run([adb, *args], capture_output=True, text=True, timeout=10)
+    flags = subprocess.CREATE_NO_WINDOW
+    result = subprocess.run([adb, *args], capture_output=True, text=True, timeout=10, creationflags=flags)
     return result.returncode, result.stdout.strip(), result.stderr.strip()
 
 
@@ -160,13 +161,14 @@ def is_mirroring(serial):
 def adb_kill_server():
     """Kill the ADB server process to free the port and allow tools/ folder cleanup."""
     adb = get_tool_path("adb")
+    flags = subprocess.CREATE_NO_WINDOW
     if adb:
         try:
-            subprocess.run([adb, "kill-server"], capture_output=True, timeout=3)
+            subprocess.run([adb, "kill-server"], capture_output=True, timeout=2, creationflags=flags)
         except Exception:
             pass
     try:
-        subprocess.run(["taskkill", "/f", "/im", "adb.exe"], capture_output=True, timeout=3)
+        subprocess.run(["taskkill", "/f", "/im", "adb.exe"], capture_output=True, timeout=2, creationflags=flags)
     except Exception:
         pass
 

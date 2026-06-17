@@ -25,11 +25,11 @@ class AirPlayReceiver:
 
     def stop(self):
         if self._process and self._process.poll() is None:
-            self._process.terminate()
+            self._process.kill()
             try:
-                self._process.wait(timeout=5)
+                self._process.wait(timeout=2)
             except subprocess.TimeoutExpired:
-                self._process.kill()
+                pass
             self._process = None
 
     def get_status_text(self):
