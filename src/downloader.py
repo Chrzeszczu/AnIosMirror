@@ -70,7 +70,7 @@ def clean_tools():
         if progress_callback:
             progress_callback(f"Downloading {name}...")
 
-        resp = requests.get(url, stream=True, timeout=120)
+        resp = requests.get(url, stream=True, timeout=(30, 300))
         resp.raise_for_status()
 
         if url.endswith(".zip"):

@@ -37,11 +37,16 @@ echo [OK] Dependencies installed
 :: ---------- Download tools ----------
 echo.
 echo [..] Downloading required tools (ADB, scrcpy, UxPlay)...
-python -c "from src.downloader import download_tools; download_tools(print)"
+python -c "import sys; sys.path.insert(0,'.'); from src.downloader import download_tools; ok=download_tools(print); sys.exit(0 if ok else 1)"
 if %errorlevel% neq 0 (
-    echo [WARN] Tool download failed. The app will retry on first launch.
+    echo [WARN] Tool download had issues. The app will retry on first launch.
 ) else (
-    echo [OK] All tools downloaded
+    python -c "import sys; sys.path.insert(0,'.'); from src.downloader import check_tools; missing=check_tools(); sys.exit(len(missing))"
+    if %errorlevel% neq 0 (
+        echo [WARN] Tools still missing after download. The app will retry on first launch.
+    ) else (
+        echo [OK] All tools downloaded
+    )
 )
 
 :: ---------- Ask about desktop shortcut ----------
