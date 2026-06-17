@@ -303,3 +303,122 @@ def take_screenshot(serial, output_dir):
 
     filepath.write_bytes(result.stdout)
     return str(filepath), None
+
+
+_recording_processes = {}
+
+
+def start_recording(serial, output_dir):
+    """Start screen recording on device via adb shell screenrecord.
+    Saves to output_dir/recordings/DD-MM-YYYY/HH-MM-SS_DD-MM-YYYY.mp4.
+    Returns (local_path, None) or (None, error_message).
+    """
+    from datetime import datetime
+    now = datetime.now()
+    date_str = now.strftime("%d-%m-%Y")
+    time_str = now.strftime("%H-%M-%S")
+
+    folder = Path(output_dir) / "recordings" / date_str
+    folder.mkdir(parents=True, exist_ok=True)
+
+    filename = f"{time_str}_{date_str}.mp4"
+    remote_path = f"/sdcard/{filename}"
+    local_path = str(folder / filename)
+
+    adb = get_tool_path("adb")
+    if not adb:
+        return None, "ADB not found"
+
+    proc = subprocess.Popen(
+        [adb, "-s", serial, "shell", "screenrecord", "--verbose", remote_path],
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+    _recording_processes[serial] = {"proc": proc, "remote": remote_path, "local": local_path}
+    return local_path, None
+
+
+def stop_recording(serial):
+    """Stop screen recording on device, pull the file, clean up remote.
+    Returns (local_path, None) or (None, error_message). Blocks during pull.
+    """
+    if serial not in _recording_processes:
+        return None, "Not recording"
+
+    info = _recording_processes[serial]
+    proc = info["proc"]
+    remote = info["remote"]
+    local = info["local"]
+    del _recording_processes[serial]
+
+    adb = get_tool_path("adb")
+    if adb:
+        result = subprocess.run(
+            [adb, "-s", serial, "shell", "pgrep", "-f", "screenrecord"],
+            capture_output=True, text=True, timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            pid = result.stdout.strip().split("\n")[-1]
+            subprocess.run(
+                [adb, "-s", serial, "shell", "kill", "-2", pid],
+                capture_output=True, timeout=5,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+            )
+
+    try:
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=2)
+
+    if adb:
+        subprocess.run(
+            [adb, "-s", serial, "pull", remote, local],
+            capture_output=True, timeout=30,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        subprocess.run(
+            [adb, "-s", serial, "shell", "rm", remote],
+            capture_output=True, timeout=5,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+
+    if Path(local).exists():
+        return local, None
+    return None, "File not found after pull"
+
+
+def pause_recording(serial):
+    """Pause screen recording on device (SIGSTOP)."""
+    return _signal_recording(serial, "-19")
+
+
+def resume_recording(serial):
+    """Resume paused screen recording (SIGCONT)."""
+    return _signal_recording(serial, "-18")
+
+
+def is_recording(serial):
+    return serial in _recording_processes
+
+
+def _signal_recording(serial, signal):
+    if serial not in _recording_processes:
+        return False
+    adb = get_tool_path("adb")
+    if not adb:
+        return False
+    result = subprocess.run(
+        [adb, "-s", serial, "shell", "pgrep", "-f", "screenrecord"],
+        capture_output=True, text=True, timeout=5,
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return False
+    pid = result.stdout.strip().split("\n")[-1]
+    subprocess.run(
+        [adb, "-s", serial, "shell", "kill", signal, pid],
+        capture_output=True, timeout=5,
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+    return True
