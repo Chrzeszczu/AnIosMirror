@@ -53,6 +53,8 @@ class MainWindow(QMainWindow):
         self.airplay = AirPlayReceiver()
         self._scan_worker = None
         self._settings = QSettings("AnIosMirror", "AnIosMirror")
+        self._favorites = []
+        self._load_favorites()
 
         self._build_ui()
         QTimer.singleShot(0, self._restore_geometry)
@@ -92,9 +94,32 @@ class MainWindow(QMainWindow):
         self.manual_connect_btn.clicked.connect(self._manual_connect)
         manual_row.addWidget(self.manual_ip_input)
         manual_row.addWidget(self.manual_connect_btn)
+        self.save_fav_btn = QPushButton("Save")
+        self.save_fav_btn.setFixedWidth(50)
+        self.save_fav_btn.clicked.connect(self._save_current_as_favorite)
+        manual_row.addWidget(self.save_fav_btn)
         android_layout.addLayout(manual_row)
 
+        # Favorites section
+        fav_group = QGroupBox("Favorites")
+        fav_layout = QVBoxLayout(fav_group)
+        fav_layout.setContentsMargins(4, 4, 4, 4)
+        self.fav_list = QListWidget()
+        self.fav_list.setMinimumHeight(60)
+        self.fav_list.setMaximumHeight(100)
+        fav_layout.addWidget(self.fav_list)
+        fav_btn_row = QHBoxLayout()
+        self.fav_connect_btn = QPushButton("Connect")
+        self.fav_connect_btn.clicked.connect(self._connect_favorite)
+        self.fav_remove_btn = QPushButton("Remove")
+        self.fav_remove_btn.clicked.connect(self._remove_favorite)
+        fav_btn_row.addWidget(self.fav_connect_btn)
+        fav_btn_row.addWidget(self.fav_remove_btn)
+        fav_layout.addLayout(fav_btn_row)
+        android_layout.addWidget(fav_group)
+
         self.always_on_top_cb = QCheckBox("Always on Top")
+        self.always_on_top_cb.stateChanged.connect(self._on_always_on_top_changed)
         android_layout.addWidget(self.always_on_top_cb)
 
         btn_mirror_row = QHBoxLayout()
@@ -135,7 +160,7 @@ class MainWindow(QMainWindow):
         ios_layout.addLayout(btn_row2)
 
         ios_help = QLabel(
-            "Na iPhonie: Control Center \u2192 Screen Mirroring \u2192 wybierz AnIosMirror"
+            "On iPhone: Control Center \u2192 Screen Mirroring \u2192 select AnIosMirror"
         )
         ios_help.setStyleSheet("color: #888; font-size: 11px;")
         ios_layout.addWidget(ios_help)
@@ -181,6 +206,78 @@ class MainWindow(QMainWindow):
         finally:
             self.dl_progress.setVisible(False)
             self.download_btn.setEnabled(True)
+
+    def _load_favorites(self):
+        import json
+        raw = self._settings.value("favorites", "[]")
+        if isinstance(raw, str):
+            try:
+                self._favorites = json.loads(raw)
+            except Exception:
+                self._favorites = []
+        self._refresh_favorites_list()
+
+    def _save_favorites(self):
+        import json
+        self._settings.setValue("favorites", json.dumps(self._favorites))
+        self._refresh_favorites_list()
+
+    def _refresh_favorites_list(self):
+        self.fav_list.clear()
+        for f in self._favorites:
+            self.fav_list.addItem(f"{f['name']} ({f['ip']}:{f['port']})")
+
+    def _save_current_as_favorite(self):
+        addr = self.manual_ip_input.text().strip()
+        if not addr:
+            QMessageBox.warning(self, "Error", "Enter IP:port first")
+            return
+        if ":" not in addr:
+            addr = f"{addr}:5555"
+        ip, port = addr.rsplit(":", 1)
+        port = int(port)
+        name = ip
+        for d in self.android_devices:
+            if d.get("ip") == ip or d.get("serial", "").startswith(ip):
+                name = d.get("name", ip)
+                break
+        for f in self._favorites:
+            if f["ip"] == ip and f["port"] == port:
+                self.android_status.setText(f"Already saved: {ip}:{port}")
+                return
+        self._favorites.append({"name": name, "ip": ip, "port": port})
+        self._save_favorites()
+        self.android_status.setText(f"Saved favorite: {name} ({ip}:{port})")
+
+    def _connect_favorite(self):
+        idx = self.fav_list.currentRow()
+        if idx < 0 or idx >= len(self._favorites):
+            return
+        fav = self._favorites[idx]
+        try:
+            dev = ad.connect_device(fav["ip"], fav["port"])
+            serial = f"{fav['ip']}:{fav['port']}"
+            if serial not in {d["serial"] for d in self.android_devices}:
+                self.android_devices.append(dev)
+                self.android_list.addItem(f"{dev['name']} ({dev['ip']})")
+            self.android_status.setText(f"Connected: {dev['name']}")
+        except Exception as e:
+            QMessageBox.critical(self, "Connection Error", str(e))
+
+    def _remove_favorite(self):
+        idx = self.fav_list.currentRow()
+        if idx < 0 or idx >= len(self._favorites):
+            return
+        del self._favorites[idx]
+        self._save_favorites()
+
+    def _on_always_on_top_changed(self, state):
+        idx = self.android_list.currentRow()
+        if idx < 0 or idx >= len(self.android_devices):
+            return
+        dev = self.android_devices[idx]
+        if ad.is_mirroring(dev["serial"]):
+            ad.set_window_always_on_top(dev.get("name", dev["serial"]), state == 2)
 
     def _scan_network(self):
         self.scan_btn.setEnabled(False)
@@ -310,6 +407,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._settings.setValue("geometry", self.saveGeometry())
+        self._save_favorites()
         try:
             self.airplay.stop()
         except Exception:

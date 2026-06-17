@@ -1,5 +1,7 @@
 import subprocess
 import socket
+import ctypes
+from ctypes import wintypes
 import concurrent.futures
 from pathlib import Path
 from src.downloader import get_tool_path
@@ -169,6 +171,36 @@ def adb_kill_server():
             pass
     try:
         subprocess.run(["taskkill", "/f", "/im", "adb.exe"], capture_output=True, timeout=2, creationflags=flags)
+    except Exception:
+        pass
+
+
+def set_window_always_on_top(title_substr, enabled):
+    try:
+        _EnumWindows = ctypes.windll.user32.EnumWindows
+        _GetWindowTextW = ctypes.windll.user32.GetWindowTextW
+        _GetWindowTextLengthW = ctypes.windll.user32.GetWindowTextLengthW
+        _SetWindowPos = ctypes.windll.user32.SetWindowPos
+
+        found = []
+
+        def enum_proc(hwnd, _):
+            length = _GetWindowTextLengthW(hwnd) + 1
+            buf = ctypes.create_unicode_buffer(length)
+            _GetWindowTextW(hwnd, buf, length)
+            if title_substr.lower() in buf.value.lower():
+                found.append(hwnd)
+            return True
+
+        cb = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        _EnumWindows(cb(enum_proc), 0)
+
+        if found:
+            HWND_TOPMOST = -1
+            HWND_NOTOPMOST = -2
+            flags = wintypes.UINT(0x0001 | 0x0002)  # SWP_NOSIZE | SWP_NOMOVE
+            _SetWindowPos(found[0], HWND_TOPMOST if enabled else HWND_NOTOPMOST,
+                          0, 0, 0, 0, flags)
     except Exception:
         pass
 
