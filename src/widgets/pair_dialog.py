@@ -6,7 +6,7 @@ from src.backends.android import get_local_subnet
 class PairDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Pair Android Device (QR Code)")
+        self.setWindowTitle("Pair Android Device")
         self.setFixedWidth(460)
         layout = QVBoxLayout(self)
 
@@ -14,22 +14,26 @@ class PairDialog(QDialog):
 
         layout.addWidget(QLabel("Android 11+ Wireless Debugging pairing"))
         layout.addWidget(QLabel(
-            "On your phone: Developer options \u2192 Wireless debugging \u2192\n"
-            "Pair device with QR code \u2192 enter code, port, and computer IP"
+            "On your phone:\n"
+            "  Developer options \u2192 Wireless debugging \u2192\n"
+            "  Pair device with pairing code\n\n"
+            "Enter the IP, port, and 6-digit code shown on your phone."
         ))
-        layout.addWidget(QLabel(f"Computer IP (enter on your phone): {my_ip}"))
 
         self.ip_input = QLineEdit()
-        self.ip_input.setPlaceholderText("Computer IP (auto-detected)")
+        self.ip_input.setPlaceholderText("Phone IP (from pairing screen)")
         self.ip_input.setText(my_ip)
+        layout.addWidget(QLabel("Phone IP:"))
         layout.addWidget(self.ip_input)
 
         self.port_input = QLineEdit()
-        self.port_input.setPlaceholderText("Port from QR (e.g. 37153)")
+        self.port_input.setPlaceholderText("e.g. 37153")
+        layout.addWidget(QLabel("Port:"))
         layout.addWidget(self.port_input)
 
         self.code_input = QLineEdit()
-        self.code_input.setPlaceholderText("Code from QR (e.g. 123456)")
+        self.code_input.setPlaceholderText("e.g. 123456")
+        layout.addWidget(QLabel("6-digit pairing code:"))
         layout.addWidget(self.code_input)
 
         btn_row = QHBoxLayout()
@@ -42,7 +46,9 @@ class PairDialog(QDialog):
         layout.addLayout(btn_row)
 
         layout.addWidget(QLabel(
-            "If Wireless Debugging is blocked by vendor:\n"
+            "Tip: On some Samsung (One UI) devices the Wireless Debugging\n"
+            "option is inside Developer options > USB debugging menu.\n\n"
+            "If the pairing code method is blocked by the vendor:\n"
             "1. Connect USB, enable USB Debugging\n"
             "2. Run: .\\tools\\adb.exe tcpip 5555\n"
             "3. Disconnect USB, enter the phone IP manually in the main window"
