@@ -165,6 +165,10 @@ def adb_kill_server():
             subprocess.run([adb, "kill-server"], capture_output=True, timeout=3)
         except Exception:
             pass
+    try:
+        subprocess.run(["taskkill", "/f", "/im", "adb.exe"], capture_output=True, timeout=3)
+    except Exception:
+        pass
 
 
 def get_connected_devices():
