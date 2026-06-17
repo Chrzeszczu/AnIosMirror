@@ -537,7 +537,7 @@ class MainWindow(QMainWindow):
             if hwnd is not None:
                 ad.move_hwnd_to_screen_center(hwnd, sg.x(), sg.y(), sg.width(), sg.height())
                 quality_options = self._get_control_quality_options()
-                cw = MirrorControlWindow(name, serial, aot_default=True, media_dir=MEDIA_DIR,
+                cw = MirrorControlWindow(name, serial, media_dir=MEDIA_DIR,
                                          quality_options=quality_options,
                                          current_quality=quality_name)
                 cw.set_hwnd(hwnd)
