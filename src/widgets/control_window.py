@@ -34,13 +34,15 @@ class MirrorControlWindow(QWidget):
     _COLLAPSED_H = 24
 
     def __init__(self, device_name, serial, media_dir=None,
-                 quality_options=None, current_quality=None, parent=None):
+                 quality_options=None, current_quality=None,
+                 platform="android", parent=None):
         super().__init__(parent)
         self._serial = serial
         self._device_name = device_name
         self._media_dir = media_dir
         self._quality_options = quality_options or []
         self._current_quality = current_quality
+        self._platform = platform
         self._hwnd = None
         self._recording = False
         self._paused = False
@@ -96,6 +98,8 @@ class MirrorControlWindow(QWidget):
         self.pause_btn = QPushButton("Pause")
         self.pause_btn.setEnabled(False)
         self.pause_btn.clicked.connect(self._toggle_pause)
+        if self._platform != "android":
+            self.pause_btn.hide()
         rec_row.addWidget(self.pause_btn)
         content_layout.addLayout(rec_row)
 
@@ -267,7 +271,10 @@ class MirrorControlWindow(QWidget):
         if not self._media_dir or self._hwnd is None:
             return
         self.screenshot_btn.setEnabled(False)
-        filepath, error = ad.take_screenshot(self._serial, self._media_dir)
+        if self._platform == "android":
+            filepath, error = ad.take_screenshot(self._serial, self._media_dir)
+        else:
+            filepath, error = ad.capture_window_screenshot(self._hwnd, self._media_dir)
         if filepath:
             self.status_message.emit(self._serial, "Screenshot saved")
         else:
@@ -278,7 +285,10 @@ class MirrorControlWindow(QWidget):
         if not self._recording:
             if not self._media_dir:
                 return
-            filepath, error = ad.start_recording(self._serial, self._media_dir)
+            if self._platform == "android":
+                filepath, error = ad.start_recording(self._serial, self._media_dir)
+            else:
+                filepath, error = ad.start_window_recording(self._hwnd, self._media_dir)
             if error:
                 self.status_message.emit(self._serial, f"Record failed: {error}")
                 return
@@ -286,14 +296,17 @@ class MirrorControlWindow(QWidget):
             self._paused = False
             self._rec_start_time = __import__('time').time()
             self.rec_btn.setText("Stop Recording")
-            self.pause_btn.setEnabled(True)
+            self.pause_btn.setEnabled(self._platform == "android")
             self.pause_btn.setText("Pause")
             self._rec_time_label.setText("00:00")
             self._rec_time_label.show()
             self._rec_timer.start()
             self.status_message.emit(self._serial, "Recording started")
         else:
-            result, error = ad.stop_recording(self._serial)
+            if self._platform == "android":
+                result, error = ad.stop_recording(self._serial)
+            else:
+                result, error = ad.stop_window_recording(self._hwnd)
             self._recording = False
             self._paused = False
             self._rec_start_time = None
@@ -367,6 +380,9 @@ class MirrorControlWindow(QWidget):
         self._timer.stop()
         self._uninstall_move_hook()
         if self._recording:
-            ad.stop_recording(self._serial)
+            if self._platform == "android":
+                ad.stop_recording(self._serial)
+            else:
+                ad.stop_window_recording(self._hwnd)
         self._hwnd = None
         self.hide()

@@ -589,3 +589,62 @@ def _merge_segments(segments):
 def is_recording(serial):
     data = _recording_processes.get(serial)
     return bool(data and data["current"])
+
+
+# ── Window-based recording (iOS / general) ────────────────
+
+_window_record_processes = {}
+
+def _get_window_title(hwnd):
+    try:
+        length = ctypes.windll.user32.GetWindowTextLengthW(hwnd) + 1
+        buf = ctypes.create_unicode_buffer(length)
+        ctypes.windll.user32.GetWindowTextW(hwnd, buf, length)
+        return buf.value
+    except Exception:
+        return None
+
+
+def start_window_recording(hwnd, output_dir):
+    """Record a window via ffmpeg gdigrab. Returns (filepath, None) or (None, error)."""
+    ffmpeg = get_tool_path("ffmpeg")
+    if not ffmpeg:
+        return None, "ffmpeg not found"
+    from datetime import datetime
+    now = datetime.now()
+    date_str = now.strftime("%d-%m-%Y")
+    time_str = now.strftime("%H-%M-%S")
+    folder = Path(output_dir) / "recordings" / date_str
+    folder.mkdir(parents=True, exist_ok=True)
+    filepath = folder / f"{time_str}_{date_str}.mp4"
+
+    title = _get_window_title(hwnd)
+    if not title:
+        return None, "Cannot determine window title"
+
+    proc = subprocess.Popen(
+        [ffmpeg, "-f", "gdigrab", "-i", f"title={title}", "-y", str(filepath)],
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+    _window_record_processes[hwnd] = {"proc": proc, "path": str(filepath)}
+    return str(filepath), None
+
+
+def stop_window_recording(hwnd):
+    """Stop window recording. Returns (filepath, None) or (None, error)."""
+    data = _window_record_processes.pop(hwnd, None)
+    if not data:
+        return None, "Not recording"
+    proc = data["proc"]
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=2)
+    return data["path"], None
+
+
+def is_window_recording(hwnd):
+    return hwnd in _window_record_processes

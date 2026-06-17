@@ -60,6 +60,7 @@ class MainWindow(QMainWindow):
         self._settings = QSettings("AnIosMirror", "AnIosMirror")
         self._favorites = []
         self._control_bars = {}
+        self._ios_control_bar = None
         self._quality_presets = {}
         self._last_quality = "medium"
 
@@ -664,10 +665,50 @@ class MainWindow(QMainWindow):
             self.airplay_start_btn.setEnabled(False)
             self.airplay_stop_btn.setEnabled(True)
             self.ios_screenshot_btn.setEnabled(True)
+            self._ios_retry_find_and_attach()
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
 
-    def _airplay_stop(self):
+    def _ios_retry_find_and_attach(self, retries=30):
+        self.airplay_status.setText("Waiting for iPhone to connect...")
+        screen = self.screen()
+        if not screen:
+            return
+        sg = screen.geometry()
+
+        def attempt(count=0):
+            if count >= retries:
+                return
+            pid = self.airplay.pid
+            hwnd = ad.find_mirror_window_by_pid(pid) if pid else None
+            if hwnd is None:
+                hwnd = ad.find_mirror_window("UxPlay")
+            if hwnd is None:
+                QTimer.singleShot(300, lambda c=count + 1: attempt(c))
+                return
+            ad.move_hwnd_to_screen_center(hwnd, sg.x(), sg.y(), sg.width(), sg.height())
+            quality_options = [k for k in ios_module.IOS_QUALITY_PRESETS]
+            quality_name = self.ios_quality_combo.currentText()
+            cw = MirrorControlWindow("iPhone", "ios", media_dir=MEDIA_DIR,
+                                     quality_options=quality_options,
+                                     current_quality=quality_name,
+                                     platform="ios")
+            cw.set_hwnd(hwnd)
+            cw.stop_requested.connect(self._airplay_for)
+            cw.aot_changed.connect(self._on_ctrl_aot_changed)
+            cw.status_message.connect(self._on_ctrl_status_message)
+            cw.quality_changed.connect(self._on_ios_control_quality_changed)
+            cw.show()
+            self._ios_control_bar = cw
+            self.airplay_status.setText("Mirroring iPhone")
+
+        QTimer.singleShot(100, attempt)
+
+    def _airplay_for(self, _serial):
+        self._cleanup_ios_control_bar()
+        self._airplay_stop_internal()
+
+    def _airplay_stop_internal(self):
         self.airplay.stop()
         self.airplay_status.setText("Stopped")
         self.airplay_status.setStyleSheet("color: gray; font-weight: bold;")
@@ -675,14 +716,40 @@ class MainWindow(QMainWindow):
         self.airplay_stop_btn.setEnabled(False)
         self.ios_screenshot_btn.setEnabled(False)
 
+    def _airplay_stop(self):
+        self._cleanup_ios_control_bar()
+        self._airplay_stop_internal()
+
+    def _cleanup_ios_control_bar(self):
+        bar = self._ios_control_bar
+        if bar is not None:
+            self._ios_control_bar = None
+            bar.cleanup()
+            bar.deleteLater()
+
     def _on_ios_quality_changed(self, text):
         if not text or not self.airplay.running:
             return
         quality = ios_module.IOS_QUALITY_PRESETS.get(text)
         try:
             self.airplay.restart(quality)
+            self._ios_retry_find_and_attach()
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
+
+    def _on_ios_control_quality_changed(self, serial, quality_name):
+        if quality_name not in ios_module.IOS_QUALITY_PRESETS:
+            return
+        quality = ios_module.IOS_QUALITY_PRESETS[quality_name]
+        self._cleanup_ios_control_bar()
+        try:
+            self.airplay.restart(quality)
+        except Exception:
+            return
+        self.ios_quality_combo.blockSignals(True)
+        self.ios_quality_combo.setCurrentText(quality_name)
+        self.ios_quality_combo.blockSignals(False)
+        self._ios_retry_find_and_attach()
 
     def _airplay_screenshot(self):
         pid = self.airplay.pid
@@ -727,6 +794,7 @@ class MainWindow(QMainWindow):
         self._settings.setValue("quality/last", self._last_quality)
         self._settings.setValue("quality/saved", json.dumps(self._quality_presets))
         self._save_custom_values()
+        self._cleanup_ios_control_bar()
         for serial in list(self._control_bars.keys()):
             self._cleanup_control_bar(serial)
         try:
