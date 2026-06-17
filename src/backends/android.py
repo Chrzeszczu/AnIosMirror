@@ -147,6 +147,14 @@ def build_quality_args(quality):
     return args
 
 
+def _drain_pipe(pipe):
+    if pipe:
+        try:
+            pipe.read()
+        except Exception:
+            pass
+
+
 def mirror_device(serial, quality=None):
     scrcpy = get_tool_path("scrcpy")
     if not scrcpy:
@@ -161,7 +169,22 @@ def mirror_device(serial, quality=None):
     proc = subprocess.Popen(
         args,
         creationflags=subprocess.CREATE_NO_WINDOW,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
+    try:
+        proc.wait(timeout=0.5)
+        _, err = proc.communicate()
+        detail = err.decode("utf-8", errors="replace").strip() if err else ""
+        msg = f"scrcpy exited immediately (code {proc.returncode})"
+        if detail:
+            msg += f": {detail}"
+        raise RuntimeError(msg)
+    except subprocess.TimeoutExpired:
+        pass
+    import threading
+    threading.Thread(target=_drain_pipe, args=(proc.stdout,), daemon=True).start()
+    threading.Thread(target=_drain_pipe, args=(proc.stderr,), daemon=True).start()
     _mirror_processes[serial] = proc
 
 
