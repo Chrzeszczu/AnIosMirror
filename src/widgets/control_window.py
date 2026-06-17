@@ -1,7 +1,7 @@
 import ctypes
 from ctypes import wintypes
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QCheckBox, QComboBox
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QSettings
 from src.backends import android as ad
 
 _user32 = ctypes.windll.user32
@@ -25,23 +25,28 @@ class MirrorControlWindow(QWidget):
     stop_requested = pyqtSignal(str)
     aot_changed = pyqtSignal(str, bool)
     status_message = pyqtSignal(str, str)
+    quality_changed = pyqtSignal(str, str)
     _hwnd_moved = pyqtSignal()
 
     _NORMAL_W = 210
-    _NORMAL_H = 250
+    _NORMAL_H = 275
     _COLLAPSED_W = 36
     _COLLAPSED_H = 24
 
-    def __init__(self, device_name, serial, aot_default=True, media_dir=None, parent=None):
+    def __init__(self, device_name, serial, media_dir=None,
+                 quality_options=None, current_quality=None, parent=None):
         super().__init__(parent)
         self._serial = serial
         self._device_name = device_name
         self._media_dir = media_dir
+        self._quality_options = quality_options or []
+        self._current_quality = current_quality
         self._hwnd = None
         self._recording = False
         self._paused = False
         self._collapsed = False
-        self._side = "right"
+        self._qsettings = QSettings("AnIosMirror", "AnIosMirror")
+        self._side = self._qsettings.value(f"control/{serial}/side", "right")
         self._hook = None
         self._hook_proc = None
         self._rec_start_time = None
@@ -72,9 +77,11 @@ class MirrorControlWindow(QWidget):
         lbl.setStyleSheet("font-weight: bold; font-size: 11px; color: #eee;")
         content_layout.addWidget(lbl)
 
+        saved_aot = self._qsettings.value(f"control/{serial}/aot", "true")
+        aot_checked = saved_aot == "true" if isinstance(saved_aot, str) else bool(saved_aot)
         self.aot = QCheckBox("Always on Top")
         self.aot.setStyleSheet("color: #ccc; font-size: 10px;")
-        self.aot.setChecked(aot_default)
+        self.aot.setChecked(aot_checked)
         self.aot.stateChanged.connect(self._on_aot)
         content_layout.addWidget(self.aot)
 
@@ -102,6 +109,25 @@ class MirrorControlWindow(QWidget):
         self._rec_timer.timeout.connect(self._update_rec_time)
         self._rec_timer.setInterval(1000)
 
+        # Quality row
+        q_row = QHBoxLayout()
+        q_label = QLabel("Quality:")
+        q_label.setStyleSheet("color: #ccc; font-size: 10px;")
+        q_row.addWidget(q_label)
+        self.quality_combo = QComboBox()
+        self.quality_combo.setStyleSheet("font-size: 9px;")
+        self.quality_combo.blockSignals(True)
+        if self._quality_options:
+            self.quality_combo.addItems(self._quality_options)
+            if self._current_quality:
+                idx = self.quality_combo.findText(self._current_quality)
+                if idx >= 0:
+                    self.quality_combo.setCurrentIndex(idx)
+        self.quality_combo.blockSignals(False)
+        self.quality_combo.currentTextChanged.connect(self._on_quality_changed)
+        q_row.addWidget(self.quality_combo, 1)
+        content_layout.addLayout(q_row)
+
         content_layout.addStretch()
 
         self.stop_btn = QPushButton("Stop Mirror")
@@ -121,6 +147,9 @@ class MirrorControlWindow(QWidget):
         self.side_combo = QComboBox()
         self.side_combo.addItems(["Right", "Left"])
         self.side_combo.setStyleSheet("font-size: 9px;")
+        idx = self.side_combo.findText(self._side.capitalize())
+        if idx >= 0:
+            self.side_combo.setCurrentIndex(idx)
         self.side_combo.currentTextChanged.connect(self._on_side_changed)
         bottom_row.addWidget(self.side_combo)
         content_layout.addLayout(bottom_row)
@@ -178,6 +207,7 @@ class MirrorControlWindow(QWidget):
         event.ignore()
 
     def _on_aot(self, state):
+        self._qsettings.setValue(f"control/{self._serial}/aot", state == 2)
         self._apply_aot(state == 2, emit=True)
 
     def _apply_aot(self, enabled, emit=True):
@@ -225,8 +255,13 @@ class MirrorControlWindow(QWidget):
 
     def _on_side_changed(self, text):
         self._side = text.lower()
+        self._qsettings.setValue(f"control/{self._serial}/side", self._side)
         if not self._collapsed:
             self._track()
+
+    def _on_quality_changed(self, text):
+        if text:
+            self.quality_changed.emit(self._serial, text)
 
     def _take_screenshot(self):
         if not self._media_dir or self._hwnd is None:

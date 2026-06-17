@@ -121,10 +121,42 @@ def pair_device(code, port, host=None):
     return out
 
 
+QUALITY_PRESETS = {
+    "ultra":  {"bit_rate": "100M", "max_size": 0,    "max_fps": 90, "encoder": ""},
+    "best":   {"bit_rate": "50M",  "max_size": 0,    "max_fps": 60, "encoder": ""},
+    "medium": {"bit_rate": "8M",   "max_size": 1920, "max_fps": 30, "encoder": ""},
+    "low":    {"bit_rate": "2M",   "max_size": 1024, "max_fps": 15, "encoder": ""},
+}
+
 _mirror_processes = {}
 
 
-def mirror_device(serial, always_on_top=False):
+def build_quality_args(quality):
+    """Convert a quality dict to scrcpy argument list (without the executable and serial)."""
+    args = []
+    if quality.get("bit_rate"):
+        args.extend(["--video-bit-rate", quality["bit_rate"]])
+    ms = quality.get("max_size", 0)
+    if ms and ms != "0":
+        args.extend(["--max-size", str(ms)])
+    mf = quality.get("max_fps", 0)
+    if mf and mf != "0":
+        args.extend(["--max-fps", str(mf)])
+    enc = quality.get("encoder", "")
+    if enc and enc.lower() not in ("auto", ""):
+        args.extend(["--video-codec", enc])
+    return args
+
+
+def _drain_pipe(pipe):
+    if pipe:
+        try:
+            pipe.read()
+        except Exception:
+            pass
+
+
+def mirror_device(serial, quality=None):
     scrcpy = get_tool_path("scrcpy")
     if not scrcpy:
         raise RuntimeError("scrcpy not found. Download tools first.")
@@ -133,12 +165,27 @@ def mirror_device(serial, always_on_top=False):
         if proc.poll() is None:
             return  # already mirroring
     args = [scrcpy, "-s", serial, "--no-audio"]
-    if always_on_top:
-        args.append("--always-on-top")
+    if quality:
+        args.extend(build_quality_args(quality))
     proc = subprocess.Popen(
         args,
         creationflags=subprocess.CREATE_NO_WINDOW,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
+    try:
+        proc.wait(timeout=0.5)
+        _, err = proc.communicate()
+        detail = err.decode("utf-8", errors="replace").strip() if err else ""
+        msg = f"scrcpy exited immediately (code {proc.returncode})"
+        if detail:
+            msg += f": {detail}"
+        raise RuntimeError(msg)
+    except subprocess.TimeoutExpired:
+        pass
+    import threading
+    threading.Thread(target=_drain_pipe, args=(proc.stdout,), daemon=True).start()
+    threading.Thread(target=_drain_pipe, args=(proc.stderr,), daemon=True).start()
     _mirror_processes[serial] = proc
 
 
@@ -219,6 +266,12 @@ def get_connected_devices():
     return devices
 
 
+def get_mirror_pid(serial):
+    if serial in _mirror_processes:
+        return _mirror_processes[serial].pid
+    return None
+
+
 def find_mirror_window(title_substr):
     """Find first visible window whose title contains title_substr. Returns HWND or None."""
     try:
@@ -238,6 +291,43 @@ def find_mirror_window(title_substr):
     except Exception:
         pass
     return None
+
+
+def find_mirror_window_by_pid(pid):
+    """Find first visible window owned by process pid. Returns HWND or None."""
+    try:
+        hwnds = []
+        def enum_cb(hwnd, _):
+            window_pid = wintypes.DWORD()
+            ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(window_pid))
+            if window_pid.value == pid and ctypes.windll.user32.IsWindowVisible(hwnd):
+                hwnds.append(hwnd)
+            return True
+        cb = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        ctypes.windll.user32.EnumWindows(cb(enum_cb), 0)
+        if hwnds:
+            return hwnds[0]
+    except Exception:
+        pass
+    return None
+
+
+def enum_visible_windows():
+    """Return list of (hwnd, title) for all visible windows (debug helper)."""
+    results = []
+    try:
+        def enum_cb(hwnd, _):
+            if ctypes.windll.user32.IsWindowVisible(hwnd):
+                length = ctypes.windll.user32.GetWindowTextLengthW(hwnd) + 1
+                buf = ctypes.create_unicode_buffer(length)
+                ctypes.windll.user32.GetWindowTextW(hwnd, buf, length)
+                results.append((hwnd, buf.value))
+            return True
+        cb = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        ctypes.windll.user32.EnumWindows(cb(enum_cb), 0)
+    except Exception:
+        pass
+    return results
 
 
 def move_hwnd_to_screen_center(hwnd, screen_x, screen_y, screen_w, screen_h):
