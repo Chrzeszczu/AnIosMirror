@@ -134,16 +134,16 @@ def build_quality_args(quality):
     """Convert a quality dict to scrcpy argument list (without the executable and serial)."""
     args = []
     if quality.get("bit_rate"):
-        args.append(f"--bit-rate={quality['bit_rate']}")
+        args.extend(["--bit-rate", quality["bit_rate"]])
     ms = quality.get("max_size", 0)
     if ms and ms != "0":
-        args.append(f"--max-size={ms}")
+        args.extend(["--max-size", str(ms)])
     mf = quality.get("max_fps", 0)
     if mf and mf != "0":
-        args.append(f"--max-fps={mf}")
+        args.extend(["--max-fps", str(mf)])
     enc = quality.get("encoder", "")
     if enc and enc.lower() not in ("auto", ""):
-        args.append(f"--video-encoder={enc}")
+        args.extend(["--video-encoder", enc])
     return args
 
 
