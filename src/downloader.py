@@ -51,7 +51,18 @@ def get_tool_path(name):
 def download_tools(progress_callback=None):
     missing = check_tools()
     if not missing:
-        return True
+    return True
+
+
+def clean_tools():
+    import shutil
+    if not TOOLS_DIR.exists():
+        return
+    for f in TOOLS_DIR.iterdir():
+        if f.is_dir():
+            shutil.rmtree(f, ignore_errors=True)
+        else:
+            f.unlink(missing_ok=True)
 
     for name in missing:
         info = TOOLS[name]
