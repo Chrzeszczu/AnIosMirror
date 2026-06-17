@@ -1,3 +1,4 @@
+import ctypes
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QCheckBox
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from src.backends import android as ad
@@ -165,6 +166,15 @@ class MirrorControlWindow(QWidget):
         x = rect["x"] + rect["w"] + 8
         y = rect["y"] + 30
         self.move(x, y)
+        try:
+            if ctypes.windll.user32.GetForegroundWindow() == self._hwnd:
+                ctypes.windll.user32.SetWindowPos(
+                    int(self.winId()),
+                    0, 0, 0, 0, 0,
+                    0x0001 | 0x0002 | 0x0010
+                )
+        except Exception:
+            pass
 
     def cleanup(self):
         self._timer.stop()
