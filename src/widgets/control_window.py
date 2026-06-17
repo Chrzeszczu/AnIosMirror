@@ -11,8 +11,8 @@ class MirrorControlWindow(QWidget):
 
     _NORMAL_W = 210
     _NORMAL_H = 250
-    _COLLAPSED_W = 30
-    _COLLAPSED_H = 26
+    _COLLAPSED_W = 36
+    _COLLAPSED_H = 24
 
     def __init__(self, device_name, serial, aot_default=True, media_dir=None, parent=None):
         super().__init__(parent)
@@ -148,10 +148,12 @@ class MirrorControlWindow(QWidget):
     def _on_hide_changed(self, state):
         self._collapsed = state == 2
         if self._collapsed:
+            self.layout().setContentsMargins(1, 1, 1, 1)
             self._content.hide()
             self._expand_btn.show()
             self.setFixedSize(self._COLLAPSED_W, self._COLLAPSED_H)
         else:
+            self.layout().setContentsMargins(4, 4, 4, 4)
             self._expand_btn.hide()
             self._content.show()
             self.setFixedSize(self._NORMAL_W, self._NORMAL_H)
@@ -230,7 +232,7 @@ class MirrorControlWindow(QWidget):
             x = rect["x"] + rect["w"] + 8
         else:
             x = rect["x"] - mw - 8
-        y = rect["y"] + 30
+        y = rect["y"] + (5 if self._collapsed else 30)
         self.move(x, y)
         try:
             if ctypes.windll.user32.GetForegroundWindow() == self._hwnd:
