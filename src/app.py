@@ -12,7 +12,7 @@ from src.downloader import check_tools, download_tools, get_tool_path
 from src.backends import android as ad
 from src.backends.ios import AirPlayReceiver
 from src.widgets.pair_dialog import PairDialog
-from src.widgets.control_bar import MirrorControlBar
+from src.widgets.control_window import MirrorControlWindow
 
 TOOLS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tools")
 
@@ -370,36 +370,30 @@ class MainWindow(QMainWindow):
 
         def attempt(count=0):
             if count >= retries:
-                self.android_status.setText(f"Mirror started, but could not attach control bar to {name}")
+                self.android_status.setText(f"Mirror started, but could not attach controls to {name}")
                 return
             hwnd = ad.find_mirror_window(name)
             if hwnd is not None:
-                ad.move_hwnd_to_screen(hwnd, sg.x(), sg.y(), sg.width(), sg.height())
-                bar = MirrorControlBar(name, serial, aot_default=self.always_on_top_cb.isChecked())
-                bar.set_hwnd(hwnd)
-                bar.stop_requested.connect(self._stop_android_for)
-                bar.aot_changed.connect(self._on_bar_aot_changed)
-                bar.show()
-                self._control_bars[serial] = bar
+                ad.move_hwnd_to_screen_center(hwnd, sg.x(), sg.y(), sg.width(), sg.height())
+                cw = MirrorControlWindow(name, serial, aot_default=self.always_on_top_cb.isChecked())
+                cw.set_hwnd(hwnd)
+                cw.stop_requested.connect(self._stop_android_for)
+                cw.aot_changed.connect(self._on_ctrl_aot_changed)
+                cw.show()
+                self._control_bars[serial] = cw
                 self.android_status.setText(f"Mirroring {name}")
             else:
                 QTimer.singleShot(300, lambda c=count + 1: attempt(c))
 
         QTimer.singleShot(100, attempt)
 
-    def _on_bar_aot_changed(self, serial, enabled):
-        name = serial
-        for dev in self.android_devices:
-            if dev["serial"] == serial:
-                name = dev.get("name", serial)
-                break
-        ad.set_window_always_on_top(name, enabled)
+    def _on_ctrl_aot_changed(self, serial, enabled):
         self.always_on_top_cb.blockSignals(True)
         self.always_on_top_cb.setChecked(enabled)
         self.always_on_top_cb.blockSignals(False)
-        for s, bar in self._control_bars.items():
+        for s, cw in self._control_bars.items():
             if s != serial:
-                bar.set_aot(enabled)
+                cw.set_aot(enabled)
 
     def _stop_android_for(self, serial):
         try:

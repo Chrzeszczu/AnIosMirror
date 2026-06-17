@@ -177,30 +177,23 @@ def adb_kill_server():
 
 def set_window_always_on_top(title_substr, enabled):
     try:
-        _EnumWindows = ctypes.windll.user32.EnumWindows
-        _GetWindowTextW = ctypes.windll.user32.GetWindowTextW
-        _GetWindowTextLengthW = ctypes.windll.user32.GetWindowTextLengthW
-        _SetWindowPos = ctypes.windll.user32.SetWindowPos
+        hwnd = find_mirror_window(title_substr)
+        if hwnd is not None:
+            set_window_always_on_top_by_hwnd(hwnd, enabled)
+    except Exception:
+        pass
 
-        found = []
 
-        def enum_proc(hwnd, _):
-            length = _GetWindowTextLengthW(hwnd) + 1
-            buf = ctypes.create_unicode_buffer(length)
-            _GetWindowTextW(hwnd, buf, length)
-            if title_substr.lower() in buf.value.lower():
-                found.append(hwnd)
-            return True
-
-        cb = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-        _EnumWindows(cb(enum_proc), 0)
-
-        if found:
-            HWND_TOPMOST = -1
-            HWND_NOTOPMOST = -2
-            flags = wintypes.UINT(0x0001 | 0x0002)  # SWP_NOSIZE | SWP_NOMOVE
-            _SetWindowPos(found[0], HWND_TOPMOST if enabled else HWND_NOTOPMOST,
-                          0, 0, 0, 0, flags)
+def set_window_always_on_top_by_hwnd(hwnd, enabled):
+    try:
+        HWND_TOPMOST = -1
+        HWND_NOTOPMOST = -2
+        flags = wintypes.UINT(0x0001 | 0x0002)  # SWP_NOSIZE | SWP_NOMOVE
+        ctypes.windll.user32.SetWindowPos(
+            hwnd,
+            HWND_TOPMOST if enabled else HWND_NOTOPMOST,
+            0, 0, 0, 0, flags
+        )
     except Exception:
         pass
 
@@ -240,16 +233,21 @@ def find_mirror_window(title_substr):
     return None
 
 
-def move_hwnd_to_screen(hwnd, screen_x, screen_y, screen_w, screen_h, window_w=900, window_h=700):
-    """Move and resize a window to the center of the given screen."""
+def move_hwnd_to_screen_center(hwnd, screen_x, screen_y, screen_w, screen_h):
+    """Move a window to the center of the specified screen. Does NOT resize."""
     try:
-        target_x = screen_x + (screen_w - window_w) // 2
-        target_y = screen_y + (screen_h - window_h) // 2
+        rect = wintypes.RECT()
+        if not ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return
+        w = rect.right - rect.left
+        h = rect.bottom - rect.top
+        target_x = screen_x + (screen_w - w) // 2
+        target_y = screen_y + (screen_h - h) // 2
         if target_x < screen_x:
             target_x = screen_x
         if target_y < screen_y:
             target_y = screen_y
-        ctypes.windll.user32.SetWindowPos(hwnd, 0, target_x, target_y, window_w, window_h, 0x0004)  # SWP_NOZORDER
+        ctypes.windll.user32.SetWindowPos(hwnd, 0, target_x, target_y, 0, 0, 0x0004 | 0x0001)  # SWP_NOZORDER | SWP_NOSIZE
     except Exception:
         pass
 
