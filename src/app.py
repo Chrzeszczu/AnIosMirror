@@ -15,6 +15,7 @@ from src.widgets.pair_dialog import PairDialog
 from src.widgets.control_window import MirrorControlWindow
 
 TOOLS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tools")
+MEDIA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "media")
 
 
 class DeviceItem:
@@ -79,7 +80,7 @@ class MainWindow(QMainWindow):
         btn_row = QHBoxLayout()
         self.scan_btn = QPushButton("Scan Network")
         self.scan_btn.clicked.connect(self._scan_network)
-        self.pair_btn = QPushButton("Pair with QR Code")
+        self.pair_btn = QPushButton("Pair with Pairing Code")
         self.pair_btn.clicked.connect(self._open_pair_dialog)
         btn_row.addWidget(self.scan_btn)
         btn_row.addWidget(self.pair_btn)
@@ -102,6 +103,20 @@ class MainWindow(QMainWindow):
         manual_row.addWidget(self.save_fav_btn)
         android_layout.addLayout(manual_row)
 
+        btn_mirror_row = QHBoxLayout()
+        self.mirror_android_btn = QPushButton("Start Mirror")
+        self.mirror_android_btn.clicked.connect(self._mirror_android)
+        self.mirror_android_btn.setEnabled(False)
+        self.stop_android_btn = QPushButton("Stop Mirror")
+        self.stop_android_btn.clicked.connect(self._stop_android)
+        self.stop_android_btn.setEnabled(False)
+        btn_mirror_row.addWidget(self.mirror_android_btn)
+        btn_mirror_row.addWidget(self.stop_android_btn)
+        android_layout.addLayout(btn_mirror_row)
+
+        self.android_status = QLabel("Status: idle")
+        android_layout.addWidget(self.android_status)
+
         # Favorites section
         fav_group = QGroupBox("Favorites")
         fav_layout = QVBoxLayout(fav_group)
@@ -120,19 +135,6 @@ class MainWindow(QMainWindow):
         fav_layout.addLayout(fav_btn_row)
         android_layout.addWidget(fav_group)
 
-        btn_mirror_row = QHBoxLayout()
-        self.mirror_android_btn = QPushButton("Mirror")
-        self.mirror_android_btn.clicked.connect(self._mirror_android)
-        self.mirror_android_btn.setEnabled(False)
-        self.stop_android_btn = QPushButton("Stop Mirror")
-        self.stop_android_btn.clicked.connect(self._stop_android)
-        self.stop_android_btn.setEnabled(False)
-        btn_mirror_row.addWidget(self.mirror_android_btn)
-        btn_mirror_row.addWidget(self.stop_android_btn)
-        android_layout.addLayout(btn_mirror_row)
-
-        self.android_status = QLabel("Status: idle")
-        android_layout.addWidget(self.android_status)
         layout.addWidget(android_group)
 
         # iOS section
@@ -355,10 +357,11 @@ class MainWindow(QMainWindow):
             hwnd = ad.find_mirror_window(name)
             if hwnd is not None:
                 ad.move_hwnd_to_screen_center(hwnd, sg.x(), sg.y(), sg.width(), sg.height())
-                cw = MirrorControlWindow(name, serial, aot_default=True)
+                cw = MirrorControlWindow(name, serial, aot_default=True, media_dir=MEDIA_DIR)
                 cw.set_hwnd(hwnd)
                 cw.stop_requested.connect(self._stop_android_for)
                 cw.aot_changed.connect(self._on_ctrl_aot_changed)
+                cw.status_message.connect(self._on_ctrl_status_message)
                 cw.show()
                 self._control_bars[serial] = cw
                 self.android_status.setText(f"Mirroring {name}")
@@ -371,6 +374,9 @@ class MainWindow(QMainWindow):
         for s, cw in self._control_bars.items():
             if s != serial:
                 cw.set_aot(enabled)
+
+    def _on_ctrl_status_message(self, serial, message):
+        self.android_status.setText(message)
 
     def _stop_android_for(self, serial):
         try:
@@ -402,11 +408,11 @@ class MainWindow(QMainWindow):
         if idx >= 0 and idx < len(self.android_devices):
             serial = self.android_devices[idx]["serial"]
             if ad.is_mirroring(serial):
-                self.mirror_android_btn.setText("Mirror (active)")
+                self.mirror_android_btn.setText("Mirroring...")
                 self.mirror_android_btn.setEnabled(False)
                 self.stop_android_btn.setEnabled(True)
             else:
-                self.mirror_android_btn.setText("Mirror")
+                self.mirror_android_btn.setText("Start Mirror")
                 self.mirror_android_btn.setEnabled(True)
                 self.stop_android_btn.setEnabled(False)
 

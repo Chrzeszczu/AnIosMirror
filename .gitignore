@@ -10,3 +10,4 @@ build/
 *.spec
 *.ps1
 *.lnk
+media/

@@ -271,3 +271,35 @@ def get_hwnd_rect(hwnd):
     except Exception:
         pass
     return None
+
+
+def take_screenshot(serial, output_dir):
+    """Take screenshot from device via ADB.
+    Saves to output_dir/screenshots/DD-MM-YYYY/HH-MM-SS_DD-MM-YYYY.png.
+    Returns (filepath, None) or (None, error_message).
+    """
+    from datetime import datetime
+    now = datetime.now()
+    date_str = now.strftime("%d-%m-%Y")
+    time_str = now.strftime("%H-%M-%S")
+
+    folder = Path(output_dir) / "screenshots" / date_str
+    folder.mkdir(parents=True, exist_ok=True)
+
+    filename = f"{time_str}_{date_str}.png"
+    filepath = folder / filename
+
+    adb = get_tool_path("adb")
+    if not adb:
+        return None, "ADB not found"
+
+    result = subprocess.run(
+        [adb, "-s", serial, "exec-out", "screencap", "-p"],
+        capture_output=True,
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+    if result.returncode != 0:
+        return None, result.stderr.strip() or "Screenshot failed"
+
+    filepath.write_bytes(result.stdout)
+    return str(filepath), None
