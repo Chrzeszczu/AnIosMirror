@@ -310,10 +310,19 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._settings.setValue("geometry", self.saveGeometry())
-        self.airplay.stop()
+        try:
+            self.airplay.stop()
+        except Exception:
+            pass
         for dev in self.android_devices:
-            ad.stop_mirror(dev["serial"])
-        ad.adb_kill_server()
+            try:
+                ad.stop_mirror(dev["serial"])
+            except Exception:
+                pass
+        try:
+            ad.adb_kill_server()
+        except Exception:
+            pass
         event.accept()
 
 

@@ -56,9 +56,21 @@ choice /c YN /m "Create shortcut"
 if %errorlevel% equ 1 (
     echo.
     echo [..] Creating desktop shortcut...
-    set "SHORTCUT=%USERPROFILE%\Desktop\AnIosMirror.lnk"
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=[Environment]::GetFolderPath('Desktop')+'\AnIosMirror.lnk'; $w=New-Object -ComObject WScript.Shell; $c=$w.CreateShortcut($s); $c.TargetPath='cmd.exe'; $c.Arguments='/c pythonw main.pyw'; $c.WorkingDirectory='%~dp0'; $c.Description='AnIosMirror - Android / iOS Screen Mirroring'; $c.Save()"
-    if %errorlevel% neq 0 (
+    set "PS_FILE=%TEMP%\AnIosMirror_shortcut.ps1"
+    set "VBS=%~dp0AnIosMirror.vbs"
+    > "%PS_FILE%" (
+        echo $s = [Environment]::GetFolderPath('Desktop') + '\AnIosMirror.lnk'
+        echo $w = New-Object -ComObject WScript.Shell
+        echo $c = $w.CreateShortcut($s)
+        echo $c.TargetPath = 'wscript.exe'
+        echo $c.Arguments = '"%VBS:"=""%"'
+        echo $c.Description = 'AnIosMirror - Android / iOS Screen Mirroring'
+        echo $c.Save()
+    )
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%PS_FILE%"
+    set "EXITCODE=%errorlevel%"
+    del "%PS_FILE%" 2>nul
+    if %EXITCODE% neq 0 (
         echo [WARN] Could not create desktop shortcut (try running as Administrator)
     ) else (
         echo [OK] Desktop shortcut created

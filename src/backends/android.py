@@ -143,11 +143,11 @@ def stop_mirror(serial):
     if serial in _mirror_processes:
         proc = _mirror_processes[serial]
         if proc.poll() is None:
-            proc.terminate()
+            proc.kill()
             try:
-                proc.wait(timeout=5)
+                proc.wait(timeout=2)
             except subprocess.TimeoutExpired:
-                proc.kill()
+                pass
         del _mirror_processes[serial]
 
 
@@ -161,7 +161,10 @@ def adb_kill_server():
     """Kill the ADB server process to free the port and allow tools/ folder cleanup."""
     adb = get_tool_path("adb")
     if adb:
-        subprocess.run([adb, "kill-server"], capture_output=True, timeout=5)
+        try:
+            subprocess.run([adb, "kill-server"], capture_output=True, timeout=3)
+        except Exception:
+            pass
 
 
 def get_connected_devices():
