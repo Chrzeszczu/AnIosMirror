@@ -353,7 +353,7 @@ def stop_recording(serial):
     adb = get_tool_path("adb")
     if adb:
         result = subprocess.run(
-            [adb, "-s", serial, "shell", "pgrep", "-f", "screenrecord"],
+            [adb, "-s", serial, "shell", "pgrep", "screenrecord"],
             capture_output=True, text=True, timeout=5,
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
@@ -409,7 +409,7 @@ def _signal_recording(serial, signal):
     if not adb:
         return False
     result = subprocess.run(
-        [adb, "-s", serial, "shell", "pgrep", "-f", "screenrecord"],
+        [adb, "-s", serial, "shell", "pgrep", "screenrecord"],
         capture_output=True, text=True, timeout=5,
         creationflags=subprocess.CREATE_NO_WINDOW,
     )

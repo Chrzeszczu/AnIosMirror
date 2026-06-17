@@ -262,6 +262,7 @@ class MirrorControlWindow(QWidget):
             self._recording = False
             self._paused = False
             self._rec_start_time = None
+            self._pause_start = 0.0
             self.rec_btn.setText("Record")
             self.pause_btn.setEnabled(False)
             self.pause_btn.setText("Pause")
@@ -276,12 +277,14 @@ class MirrorControlWindow(QWidget):
         if not self._paused:
             if ad.pause_recording(self._serial):
                 self._paused = True
+                self._pause_start = __import__('time').time()
                 self.pause_btn.setText("Resume")
                 self._rec_timer.stop()
                 self.status_message.emit(self._serial, "Recording paused")
         else:
             if ad.resume_recording(self._serial):
                 self._paused = False
+                self._rec_start_time += __import__('time').time() - self._pause_start
                 self.pause_btn.setText("Pause")
                 self._rec_timer.start()
                 self.status_message.emit(self._serial, "Recording resumed")
