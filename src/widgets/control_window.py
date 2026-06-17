@@ -258,7 +258,7 @@ class MirrorControlWindow(QWidget):
             self._rec_timer.start()
             self.status_message.emit(self._serial, "Recording started")
         else:
-            filepath, error = ad.stop_recording(self._serial)
+            files, error = ad.stop_recording(self._serial)
             self._recording = False
             self._paused = False
             self._rec_start_time = None
@@ -268,26 +268,32 @@ class MirrorControlWindow(QWidget):
             self.pause_btn.setText("Pause")
             self._rec_timer.stop()
             self._rec_time_label.hide()
-            if filepath:
-                self.status_message.emit(self._serial, "Recording saved")
+            if files:
+                self.status_message.emit(self._serial, f"Saved {len(files)} file(s)")
             else:
                 self.status_message.emit(self._serial, f"Record failed: {error}")
 
     def _toggle_pause(self):
         if not self._paused:
-            if ad.pause_recording(self._serial):
+            local, error = ad.pause_recording(self._serial)
+            if local:
                 self._paused = True
                 self._pause_start = __import__('time').time()
                 self.pause_btn.setText("Resume")
                 self._rec_timer.stop()
                 self.status_message.emit(self._serial, "Recording paused")
+            else:
+                self.status_message.emit(self._serial, f"Pause failed: {error}")
         else:
-            if ad.resume_recording(self._serial):
+            local, error = ad.resume_recording(self._serial, self._media_dir)
+            if local:
                 self._paused = False
                 self._rec_start_time += __import__('time').time() - self._pause_start
                 self.pause_btn.setText("Pause")
                 self._rec_timer.start()
                 self.status_message.emit(self._serial, "Recording resumed")
+            else:
+                self.status_message.emit(self._serial, f"Resume failed: {error}")
 
     def _update_rec_time(self):
         if not self._rec_start_time:
