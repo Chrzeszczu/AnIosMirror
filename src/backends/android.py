@@ -121,10 +121,33 @@ def pair_device(code, port, host=None):
     return out
 
 
+QUALITY_PRESETS = {
+    "best":   {"bit_rate": "50M",  "max_size": 0,    "max_fps": 60, "encoder": ""},
+    "medium": {"bit_rate": "8M",   "max_size": 1920, "max_fps": 30, "encoder": ""},
+    "low":    {"bit_rate": "2M",   "max_size": 1024, "max_fps": 15, "encoder": ""},
+}
+
 _mirror_processes = {}
 
 
-def mirror_device(serial, always_on_top=False):
+def build_quality_args(quality):
+    """Convert a quality dict to scrcpy argument list (without the executable and serial)."""
+    args = []
+    if quality.get("bit_rate"):
+        args.append(f"--bit-rate={quality['bit_rate']}")
+    ms = quality.get("max_size", 0)
+    if ms and ms != "0":
+        args.append(f"--max-size={ms}")
+    mf = quality.get("max_fps", 0)
+    if mf and mf != "0":
+        args.append(f"--max-fps={mf}")
+    enc = quality.get("encoder", "")
+    if enc and enc.lower() not in ("auto", ""):
+        args.append(f"--video-encoder={enc}")
+    return args
+
+
+def mirror_device(serial, quality=None):
     scrcpy = get_tool_path("scrcpy")
     if not scrcpy:
         raise RuntimeError("scrcpy not found. Download tools first.")
@@ -133,8 +156,8 @@ def mirror_device(serial, always_on_top=False):
         if proc.poll() is None:
             return  # already mirroring
     args = [scrcpy, "-s", serial, "--no-audio"]
-    if always_on_top:
-        args.append("--always-on-top")
+    if quality:
+        args.extend(build_quality_args(quality))
     proc = subprocess.Popen(
         args,
         creationflags=subprocess.CREATE_NO_WINDOW,

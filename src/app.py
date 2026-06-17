@@ -1,9 +1,10 @@
 import sys
 import os
+import json
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
     QPushButton, QLabel, QListWidget, QListWidgetItem, QGroupBox,
-    QProgressBar, QMessageBox, QDialog, QLineEdit,
+    QProgressBar, QMessageBox, QDialog, QLineEdit, QComboBox, QInputDialog,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSettings
 from PyQt6.QtGui import QGuiApplication
@@ -57,9 +58,12 @@ class MainWindow(QMainWindow):
         self._settings = QSettings("AnIosMirror", "AnIosMirror")
         self._favorites = []
         self._control_bars = {}
+        self._quality_presets = {}
+        self._last_quality = "medium"
 
         self._build_ui()
         self._load_favorites()
+        self._load_quality_settings()
         QTimer.singleShot(0, self._restore_geometry)
         self._check_tools()
 
@@ -113,6 +117,44 @@ class MainWindow(QMainWindow):
         btn_mirror_row.addWidget(self.mirror_android_btn)
         btn_mirror_row.addWidget(self.stop_android_btn)
         android_layout.addLayout(btn_mirror_row)
+
+        # Quality section
+        quality_row = QHBoxLayout()
+        quality_row.addWidget(QLabel("Quality:"))
+        self.quality_combo = QComboBox()
+        self.quality_combo.currentTextChanged.connect(self._on_quality_changed)
+        quality_row.addWidget(self.quality_combo, 1)
+        self.save_q_btn = QPushButton("Save")
+        self.save_q_btn.setFixedWidth(50)
+        self.save_q_btn.clicked.connect(self._save_quality_preset)
+        quality_row.addWidget(self.save_q_btn)
+        self.delete_q_btn = QPushButton("Del")
+        self.delete_q_btn.setFixedWidth(40)
+        self.delete_q_btn.clicked.connect(self._delete_quality_preset)
+        quality_row.addWidget(self.delete_q_btn)
+        android_layout.addLayout(quality_row)
+
+        # Custom quality panel (hidden unless "Custom" selected)
+        self.custom_panel = QWidget()
+        custom_layout = QFormLayout(self.custom_panel)
+        custom_layout.setContentsMargins(4, 2, 4, 2)
+        self.q_bitrate = QComboBox()
+        self.q_bitrate.addItems(["1M", "2M", "4M", "8M", "16M", "32M", "50M", "100M"])
+        self.q_bitrate.setCurrentText("8M")
+        self.q_maxsize = QComboBox()
+        self.q_maxsize.addItems(["0", "480", "720", "1024", "1440", "1920", "2560"])
+        self.q_maxsize.setCurrentText("0")
+        self.q_fps = QComboBox()
+        self.q_fps.addItems(["0", "10", "15", "24", "30", "48", "60", "90", "120"])
+        self.q_fps.setCurrentText("30")
+        self.q_encoder = QComboBox()
+        self.q_encoder.addItems(["Auto", "h264", "h265"])
+        custom_layout.addRow("Bitrate:", self.q_bitrate)
+        custom_layout.addRow("Max Res:", self.q_maxsize)
+        custom_layout.addRow("Max FPS:", self.q_fps)
+        custom_layout.addRow("Encoder:", self.q_encoder)
+        self.custom_panel.hide()
+        android_layout.addWidget(self.custom_panel)
 
         self.android_status = QLabel("Status: idle")
         android_layout.addWidget(self.android_status)
@@ -304,6 +346,120 @@ class MainWindow(QMainWindow):
         self.mirror_android_btn.setEnabled(selected)
         self.stop_android_btn.setEnabled(selected)
 
+    # ── Quality ──────────────────────────────────────────
+
+    def _load_quality_settings(self):
+        self._last_quality = self._settings.value("quality/last", "medium")
+        raw = self._settings.value("quality/saved", "{}")
+        if isinstance(raw, str):
+            try:
+                self._quality_presets = json.loads(raw)
+            except Exception:
+                self._quality_presets = {}
+        self._populate_quality_combo()
+        self._restore_custom_values()
+
+    def _restore_custom_values(self):
+        br = self._settings.value("quality/bitrate", "8M")
+        ms = self._settings.value("quality/maxsize", "0")
+        fp = self._settings.value("quality/fps", "30")
+        en = self._settings.value("quality/encoder", "Auto")
+        idx = self.q_bitrate.findText(br)
+        if idx >= 0: self.q_bitrate.setCurrentIndex(idx)
+        idx = self.q_maxsize.findText(ms)
+        if idx >= 0: self.q_maxsize.setCurrentIndex(idx)
+        idx = self.q_fps.findText(fp)
+        if idx >= 0: self.q_fps.setCurrentIndex(idx)
+        idx = self.q_encoder.findText(en)
+        if idx >= 0: self.q_encoder.setCurrentIndex(idx)
+
+    def _save_custom_values(self):
+        self._settings.setValue("quality/bitrate", self.q_bitrate.currentText())
+        self._settings.setValue("quality/maxsize", self.q_maxsize.currentText())
+        self._settings.setValue("quality/fps", self.q_fps.currentText())
+        self._settings.setValue("quality/encoder", self.q_encoder.currentText())
+
+    def _populate_quality_combo(self):
+        self.quality_combo.blockSignals(True)
+        self.quality_combo.clear()
+        for name in ["best", "medium", "low"]:
+            self.quality_combo.addItem(name)
+        saved = sorted(self._quality_presets.keys())
+        for name in saved:
+            self.quality_combo.addItem(name)
+        self.quality_combo.addItem("Custom")
+        idx = self.quality_combo.findText(self._last_quality)
+        if idx >= 0:
+            self.quality_combo.setCurrentIndex(idx)
+        self.quality_combo.blockSignals(False)
+        self._update_custom_panel_visibility()
+
+    def _on_quality_changed(self, text):
+        if not text:
+            return
+        self._last_quality = text
+        self._settings.setValue("quality/last", text)
+        self._update_custom_panel_visibility()
+        is_saved = text in self._quality_presets
+        self.delete_q_btn.setEnabled(is_saved)
+        self.save_q_btn.setText("Overwrite" if is_saved else "Save")
+
+    def _update_custom_panel_visibility(self):
+        show = self.quality_combo.currentText() == "Custom"
+        self.custom_panel.setVisible(show)
+
+    def _save_quality_preset(self):
+        text = self.quality_combo.currentText()
+        if text == "Custom":
+            name, ok = QInputDialog.getText(self, "Save Preset", "Preset name:")
+            if not ok or not name.strip():
+                return
+            name = name.strip()
+            d = {
+                "bit_rate": self.q_bitrate.currentText(),
+                "max_size": int(self.q_maxsize.currentText()),
+                "max_fps": int(self.q_fps.currentText()),
+                "encoder": self.q_encoder.currentText(),
+            }
+            self._quality_presets[name] = d
+            self._settings.setValue("quality/saved", json.dumps(self._quality_presets))
+            self._populate_quality_combo()
+            self.quality_combo.setCurrentText(name)
+        elif text in self._quality_presets:
+            old = self._quality_presets[text]
+            if text in ad.QUALITY_PRESETS:
+                return  # can't overwrite built-in
+            self._quality_presets[text] = {
+                "bit_rate": self.q_bitrate.currentText(),
+                "max_size": int(self.q_maxsize.currentText()),
+                "max_fps": int(self.q_fps.currentText()),
+                "encoder": self.q_encoder.currentText(),
+            }
+            self._settings.setValue("quality/saved", json.dumps(self._quality_presets))
+
+    def _delete_quality_preset(self):
+        text = self.quality_combo.currentText()
+        if text in self._quality_presets and text not in ad.QUALITY_PRESETS:
+            del self._quality_presets[text]
+            self._settings.setValue("quality/saved", json.dumps(self._quality_presets))
+            self._populate_quality_combo()
+
+    def _get_current_quality(self):
+        text = self.quality_combo.currentText()
+        if text == "Custom":
+            self._save_custom_values()
+            return {
+                "bit_rate": self.q_bitrate.currentText(),
+                "max_size": int(self.q_maxsize.currentText()),
+                "max_fps": int(self.q_fps.currentText()),
+                "encoder": self.q_encoder.currentText(),
+            }
+        if text in self._quality_presets:
+            return dict(self._quality_presets[text])
+        if text in ad.QUALITY_PRESETS:
+            return dict(ad.QUALITY_PRESETS[text])
+        return None
+
     def _open_pair_dialog(self):
         dlg = PairDialog(self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
@@ -336,14 +492,15 @@ class MainWindow(QMainWindow):
         dev = self.android_devices[idx]
         serial = dev["serial"]
         name = dev.get("name", serial)
+        quality = self._get_current_quality()
         try:
-            ad.mirror_device(serial, False)
+            ad.mirror_device(serial, quality)
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return
-        self._retry_find_and_attach(serial, name)
+        self._retry_find_and_attach(serial, name, quality_name=self._last_quality)
 
-    def _retry_find_and_attach(self, serial, name, retries=15):
+    def _retry_find_and_attach(self, serial, name, retries=15, quality_name=None):
         self.android_status.setText(f"Starting mirror for {name}...")
         screen = self.screen()
         if not screen:
@@ -357,11 +514,15 @@ class MainWindow(QMainWindow):
             hwnd = ad.find_mirror_window(name)
             if hwnd is not None:
                 ad.move_hwnd_to_screen_center(hwnd, sg.x(), sg.y(), sg.width(), sg.height())
-                cw = MirrorControlWindow(name, serial, aot_default=True, media_dir=MEDIA_DIR)
+                quality_options = self._get_control_quality_options()
+                cw = MirrorControlWindow(name, serial, aot_default=True, media_dir=MEDIA_DIR,
+                                         quality_options=quality_options,
+                                         current_quality=quality_name)
                 cw.set_hwnd(hwnd)
                 cw.stop_requested.connect(self._stop_android_for)
                 cw.aot_changed.connect(self._on_ctrl_aot_changed)
                 cw.status_message.connect(self._on_ctrl_status_message)
+                cw.quality_changed.connect(self._on_control_quality_changed)
                 cw.show()
                 self._control_bars[serial] = cw
                 self.android_status.setText(f"Mirroring {name}")
@@ -369,6 +530,44 @@ class MainWindow(QMainWindow):
                 QTimer.singleShot(300, lambda c=count + 1: attempt(c))
 
         QTimer.singleShot(100, attempt)
+
+    def _get_control_quality_options(self):
+        items = []
+        for name in ["best", "medium", "low"]:
+            items.append(name)
+        saved = sorted(self._quality_presets.keys())
+        items.extend(saved)
+        return items
+
+    def _on_control_quality_changed(self, serial, quality_name):
+        dev = None
+        for d in self.android_devices:
+            if d["serial"] == serial:
+                dev = d
+                break
+        if not dev:
+            return
+        name = dev.get("name", serial)
+        cw = self._control_bars.get(serial)
+        if cw:
+            cw.cleanup()
+            cw.deleteLater()
+            self._control_bars.pop(serial, None)
+        try:
+            ad.stop_mirror(serial)
+        except Exception:
+            pass
+        if quality_name in self._quality_presets:
+            quality = dict(self._quality_presets[quality_name])
+        elif quality_name in ad.QUALITY_PRESETS:
+            quality = dict(ad.QUALITY_PRESETS[quality_name])
+        else:
+            quality = None
+        try:
+            ad.mirror_device(serial, quality)
+        except Exception:
+            return
+        self._retry_find_and_attach(serial, name, quality_name=quality_name)
 
     def _on_ctrl_aot_changed(self, serial, enabled):
         for s, cw in self._control_bars.items():
@@ -456,6 +655,9 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self._settings.setValue("geometry", self.saveGeometry())
         self._save_favorites()
+        self._settings.setValue("quality/last", self._last_quality)
+        self._settings.setValue("quality/saved", json.dumps(self._quality_presets))
+        self._save_custom_values()
         for serial in list(self._control_bars.keys()):
             self._cleanup_control_bar(serial)
         try:

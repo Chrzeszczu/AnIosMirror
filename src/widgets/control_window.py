@@ -25,18 +25,22 @@ class MirrorControlWindow(QWidget):
     stop_requested = pyqtSignal(str)
     aot_changed = pyqtSignal(str, bool)
     status_message = pyqtSignal(str, str)
+    quality_changed = pyqtSignal(str, str)
     _hwnd_moved = pyqtSignal()
 
     _NORMAL_W = 210
-    _NORMAL_H = 250
+    _NORMAL_H = 275
     _COLLAPSED_W = 36
     _COLLAPSED_H = 24
 
-    def __init__(self, device_name, serial, aot_default=True, media_dir=None, parent=None):
+    def __init__(self, device_name, serial, aot_default=True, media_dir=None,
+                 quality_options=None, current_quality=None, parent=None):
         super().__init__(parent)
         self._serial = serial
         self._device_name = device_name
         self._media_dir = media_dir
+        self._quality_options = quality_options or []
+        self._current_quality = current_quality
         self._hwnd = None
         self._recording = False
         self._paused = False
@@ -101,6 +105,25 @@ class MirrorControlWindow(QWidget):
         self._rec_timer = QTimer(self)
         self._rec_timer.timeout.connect(self._update_rec_time)
         self._rec_timer.setInterval(1000)
+
+        # Quality row
+        q_row = QHBoxLayout()
+        q_label = QLabel("Quality:")
+        q_label.setStyleSheet("color: #ccc; font-size: 10px;")
+        q_row.addWidget(q_label)
+        self.quality_combo = QComboBox()
+        self.quality_combo.setStyleSheet("font-size: 9px;")
+        self.quality_combo.blockSignals(True)
+        if self._quality_options:
+            self.quality_combo.addItems(self._quality_options)
+            if self._current_quality:
+                idx = self.quality_combo.findText(self._current_quality)
+                if idx >= 0:
+                    self.quality_combo.setCurrentIndex(idx)
+        self.quality_combo.blockSignals(False)
+        self.quality_combo.currentTextChanged.connect(self._on_quality_changed)
+        q_row.addWidget(self.quality_combo, 1)
+        content_layout.addLayout(q_row)
 
         content_layout.addStretch()
 
@@ -227,6 +250,10 @@ class MirrorControlWindow(QWidget):
         self._side = text.lower()
         if not self._collapsed:
             self._track()
+
+    def _on_quality_changed(self, text):
+        if text:
+            self.quality_changed.emit(self._serial, text)
 
     def _take_screenshot(self):
         if not self._media_dir or self._hwnd is None:
