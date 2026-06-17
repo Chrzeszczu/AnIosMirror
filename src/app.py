@@ -509,15 +509,19 @@ class MainWindow(QMainWindow):
 
         def attempt(count=0):
             if count >= retries:
+                wins = ad.enum_visible_windows()
+                titles = [t for _, t in wins if t.strip()][:10]
+                dbg = f"mirror started but no window found. Visible windows: {titles}"
                 self.android_status.setText(f"Mirror started, but could not attach controls to {name}")
+                print(dbg)
                 return
             hwnd = ad.find_mirror_window(name)
+            if hwnd is None:
+                pid = ad.get_mirror_pid(serial)
+                if pid:
+                    hwnd = ad.find_mirror_window_by_pid(pid)
             if hwnd is None and serial:
                 hwnd = ad.find_mirror_window(serial)
-            if hwnd is None:
-                ip_part = serial.split(":")[0] if ":" in serial else None
-                if ip_part:
-                    hwnd = ad.find_mirror_window(ip_part)
             if hwnd is not None:
                 ad.move_hwnd_to_screen_center(hwnd, sg.x(), sg.y(), sg.width(), sg.height())
                 quality_options = self._get_control_quality_options()

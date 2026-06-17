@@ -242,6 +242,12 @@ def get_connected_devices():
     return devices
 
 
+def get_mirror_pid(serial):
+    if serial in _mirror_processes:
+        return _mirror_processes[serial].pid
+    return None
+
+
 def find_mirror_window(title_substr):
     """Find first visible window whose title contains title_substr. Returns HWND or None."""
     try:
@@ -261,6 +267,43 @@ def find_mirror_window(title_substr):
     except Exception:
         pass
     return None
+
+
+def find_mirror_window_by_pid(pid):
+    """Find first visible window owned by process pid. Returns HWND or None."""
+    try:
+        hwnds = []
+        def enum_cb(hwnd, _):
+            window_pid = wintypes.DWORD()
+            ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(window_pid))
+            if window_pid.value == pid and ctypes.windll.user32.IsWindowVisible(hwnd):
+                hwnds.append(hwnd)
+            return True
+        cb = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        ctypes.windll.user32.EnumWindows(cb(enum_cb), 0)
+        if hwnds:
+            return hwnds[0]
+    except Exception:
+        pass
+    return None
+
+
+def enum_visible_windows():
+    """Return list of (hwnd, title) for all visible windows (debug helper)."""
+    results = []
+    try:
+        def enum_cb(hwnd, _):
+            if ctypes.windll.user32.IsWindowVisible(hwnd):
+                length = ctypes.windll.user32.GetWindowTextLengthW(hwnd) + 1
+                buf = ctypes.create_unicode_buffer(length)
+                ctypes.windll.user32.GetWindowTextW(hwnd, buf, length)
+                results.append((hwnd, buf.value))
+            return True
+        cb = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        ctypes.windll.user32.EnumWindows(cb(enum_cb), 0)
+    except Exception:
+        pass
+    return results
 
 
 def move_hwnd_to_screen_center(hwnd, screen_x, screen_y, screen_w, screen_h):
