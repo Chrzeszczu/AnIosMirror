@@ -330,6 +330,35 @@ def enum_visible_windows():
     return results
 
 
+def capture_window_screenshot(hwnd, output_dir):
+    """Capture a screenshot of any window by HWND. Saves as PNG.
+    Returns (filepath, None) or (None, error_message)."""
+    try:
+        from datetime import datetime
+        from pathlib import Path
+        from PIL import ImageGrab
+        now = datetime.now()
+        date_str = now.strftime("%d-%m-%Y")
+        time_str = now.strftime("%H-%M-%S")
+        folder = Path(output_dir) / "screenshots" / date_str
+        folder.mkdir(parents=True, exist_ok=True)
+        filepath = folder / f"{time_str}_{date_str}.png"
+
+        rect = wintypes.RECT()
+        if not ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return None, "Cannot get window rect"
+        w = rect.right - rect.left
+        h = rect.bottom - rect.top
+        if w <= 0 or h <= 0:
+            return None, "Window has no size"
+
+        img = ImageGrab.grab(bbox=(rect.left, rect.top, rect.right, rect.bottom))
+        img.save(filepath, "PNG")
+        return str(filepath), None
+    except Exception as e:
+        return None, str(e)
+
+
 def move_hwnd_to_screen_center(hwnd, screen_x, screen_y, screen_w, screen_h):
     """Move a window to the center of the specified screen. Does NOT resize."""
     try:
