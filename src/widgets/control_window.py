@@ -14,7 +14,7 @@ class MirrorControlWindow(QWidget):
         self._hwnd = None
 
         self.setWindowTitle(f"Mirror: {device_name[:30]}")
-        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
+        self.setWindowFlags(Qt.WindowType.Tool)
         self.setFixedSize(200, 130)
 
         layout = QVBoxLayout(self)

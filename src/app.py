@@ -3,7 +3,7 @@ import os
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QListWidget, QListWidgetItem, QGroupBox,
-    QProgressBar, QMessageBox, QDialog, QLineEdit, QCheckBox,
+    QProgressBar, QMessageBox, QDialog, QLineEdit,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QSettings
 from PyQt6.QtGui import QGuiApplication
@@ -58,7 +58,6 @@ class MainWindow(QMainWindow):
         self._control_bars = {}
 
         self._build_ui()
-        self._restore_aot_state()
         self._load_favorites()
         QTimer.singleShot(0, self._restore_geometry)
         self._check_tools()
@@ -120,10 +119,6 @@ class MainWindow(QMainWindow):
         fav_btn_row.addWidget(self.fav_remove_btn)
         fav_layout.addLayout(fav_btn_row)
         android_layout.addWidget(fav_group)
-
-        self.always_on_top_cb = QCheckBox("Always on Top")
-        self.always_on_top_cb.stateChanged.connect(self._on_always_on_top_changed)
-        android_layout.addWidget(self.always_on_top_cb)
 
         btn_mirror_row = QHBoxLayout()
         self.mirror_android_btn = QPushButton("Mirror")
@@ -276,21 +271,6 @@ class MainWindow(QMainWindow):
         del self._favorites[idx]
         self._save_favorites()
 
-    def _restore_aot_state(self):
-        val = self._settings.value("always_on_top", "false")
-        if isinstance(val, str):
-            val = val.lower() == "true"
-        self.always_on_top_cb.setChecked(val)
-
-    def _on_always_on_top_changed(self, state):
-        enabled = state == 2
-        for dev in self.android_devices:
-            if ad.is_mirroring(dev["serial"]):
-                name = dev.get("name", dev["serial"])
-                ad.set_window_always_on_top(name, enabled)
-        for bar in self._control_bars.values():
-            bar.set_aot(enabled)
-
     def _scan_network(self):
         self.scan_btn.setEnabled(False)
         self.android_list.clear()
@@ -355,7 +335,7 @@ class MainWindow(QMainWindow):
         serial = dev["serial"]
         name = dev.get("name", serial)
         try:
-            ad.mirror_device(serial, self.always_on_top_cb.isChecked())
+            ad.mirror_device(serial, False)
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
             return
@@ -375,7 +355,7 @@ class MainWindow(QMainWindow):
             hwnd = ad.find_mirror_window(name)
             if hwnd is not None:
                 ad.move_hwnd_to_screen_center(hwnd, sg.x(), sg.y(), sg.width(), sg.height())
-                cw = MirrorControlWindow(name, serial, aot_default=self.always_on_top_cb.isChecked())
+                cw = MirrorControlWindow(name, serial, aot_default=False)
                 cw.set_hwnd(hwnd)
                 cw.stop_requested.connect(self._stop_android_for)
                 cw.aot_changed.connect(self._on_ctrl_aot_changed)
@@ -388,9 +368,6 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(100, attempt)
 
     def _on_ctrl_aot_changed(self, serial, enabled):
-        self.always_on_top_cb.blockSignals(True)
-        self.always_on_top_cb.setChecked(enabled)
-        self.always_on_top_cb.blockSignals(False)
         for s, cw in self._control_bars.items():
             if s != serial:
                 cw.set_aot(enabled)
@@ -472,7 +449,6 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._settings.setValue("geometry", self.saveGeometry())
-        self._settings.setValue("always_on_top", self.always_on_top_cb.isChecked())
         self._save_favorites()
         for serial in list(self._control_bars.keys()):
             self._cleanup_control_bar(serial)
