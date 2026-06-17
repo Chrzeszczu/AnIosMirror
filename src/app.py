@@ -12,6 +12,7 @@ from src.downloader import check_tools, download_tools, get_tool_path
 from src.backends import android as ad
 from src.backends.ios import AirPlayReceiver
 from src.widgets.pair_dialog import PairDialog
+from src.widgets.control_bar import MirrorControlBar
 
 TOOLS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tools")
 
@@ -54,8 +55,10 @@ class MainWindow(QMainWindow):
         self._scan_worker = None
         self._settings = QSettings("AnIosMirror", "AnIosMirror")
         self._favorites = []
+        self._control_bars = {}
 
         self._build_ui()
+        self._restore_aot_state()
         self._load_favorites()
         QTimer.singleShot(0, self._restore_geometry)
         self._check_tools()
@@ -273,13 +276,20 @@ class MainWindow(QMainWindow):
         del self._favorites[idx]
         self._save_favorites()
 
+    def _restore_aot_state(self):
+        val = self._settings.value("always_on_top", "false")
+        if isinstance(val, str):
+            val = val.lower() == "true"
+        self.always_on_top_cb.setChecked(val)
+
     def _on_always_on_top_changed(self, state):
-        idx = self.android_list.currentRow()
-        if idx < 0 or idx >= len(self.android_devices):
-            return
-        dev = self.android_devices[idx]
-        if ad.is_mirroring(dev["serial"]):
-            ad.set_window_always_on_top(dev.get("name", dev["serial"]), state == 2)
+        enabled = state == 2
+        for dev in self.android_devices:
+            if ad.is_mirroring(dev["serial"]):
+                name = dev.get("name", dev["serial"])
+                ad.set_window_always_on_top(name, enabled)
+        for bar in self._control_bars.values():
+            bar.set_aot(enabled)
 
     def _scan_network(self):
         self.scan_btn.setEnabled(False)
@@ -342,10 +352,68 @@ class MainWindow(QMainWindow):
         if idx < 0 or idx >= len(self.android_devices):
             return
         dev = self.android_devices[idx]
+        serial = dev["serial"]
+        name = dev.get("name", serial)
         try:
-            ad.mirror_device(dev["serial"], self.always_on_top_cb.isChecked())
+            ad.mirror_device(serial, self.always_on_top_cb.isChecked())
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
+            return
+        self._retry_find_and_attach(serial, name)
+
+    def _retry_find_and_attach(self, serial, name, retries=15):
+        self.android_status.setText(f"Starting mirror for {name}...")
+        screen = self.screen()
+        if not screen:
+            return
+        sg = screen.geometry()
+
+        def attempt(count=0):
+            if count >= retries:
+                self.android_status.setText(f"Mirror started, but could not attach control bar to {name}")
+                return
+            hwnd = ad.find_mirror_window(name)
+            if hwnd is not None:
+                ad.move_hwnd_to_screen(hwnd, sg.x(), sg.y(), sg.width(), sg.height())
+                bar = MirrorControlBar(name, serial, aot_default=self.always_on_top_cb.isChecked())
+                bar.set_hwnd(hwnd)
+                bar.stop_requested.connect(self._stop_android_for)
+                bar.aot_changed.connect(self._on_bar_aot_changed)
+                bar.show()
+                self._control_bars[serial] = bar
+                self.android_status.setText(f"Mirroring {name}")
+            else:
+                QTimer.singleShot(300, lambda c=count + 1: attempt(c))
+
+        QTimer.singleShot(100, attempt)
+
+    def _on_bar_aot_changed(self, serial, enabled):
+        name = serial
+        for dev in self.android_devices:
+            if dev["serial"] == serial:
+                name = dev.get("name", serial)
+                break
+        ad.set_window_always_on_top(name, enabled)
+        self.always_on_top_cb.blockSignals(True)
+        self.always_on_top_cb.setChecked(enabled)
+        self.always_on_top_cb.blockSignals(False)
+        for s, bar in self._control_bars.items():
+            if s != serial:
+                bar.set_aot(enabled)
+
+    def _stop_android_for(self, serial):
+        try:
+            ad.stop_mirror(serial)
+        except Exception:
+            pass
+        self._cleanup_control_bar(serial)
+        self._update_mirror_buttons()
+
+    def _cleanup_control_bar(self, serial):
+        bar = self._control_bars.pop(serial, None)
+        if bar is not None:
+            bar.cleanup()
+            bar.deleteLater()
 
     def _stop_android(self):
         idx = self.android_list.currentRow()
@@ -356,6 +424,7 @@ class MainWindow(QMainWindow):
             ad.stop_mirror(dev["serial"])
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
+        self._cleanup_control_bar(dev["serial"])
 
     def _update_mirror_buttons(self):
         idx = self.android_list.currentRow()
@@ -409,7 +478,10 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self._settings.setValue("geometry", self.saveGeometry())
+        self._settings.setValue("always_on_top", self.always_on_top_cb.isChecked())
         self._save_favorites()
+        for serial in list(self._control_bars.keys()):
+            self._cleanup_control_bar(serial)
         try:
             self.airplay.stop()
         except Exception:

@@ -217,3 +217,52 @@ def get_connected_devices():
             name = _get_device_name(serial)
             devices.append({"ip": serial, "serial": serial, "name": name})
     return devices
+
+
+def find_mirror_window(title_substr):
+    """Find first visible window whose title contains title_substr. Returns HWND or None."""
+    try:
+        hwnds = []
+        def enum_cb(hwnd, _):
+            length = ctypes.windll.user32.GetWindowTextLengthW(hwnd) + 1
+            buf = ctypes.create_unicode_buffer(length)
+            ctypes.windll.user32.GetWindowTextW(hwnd, buf, length)
+            if title_substr.lower() in buf.value.lower():
+                if ctypes.windll.user32.IsWindowVisible(hwnd):
+                    hwnds.append(hwnd)
+            return True
+        cb = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        ctypes.windll.user32.EnumWindows(cb(enum_cb), 0)
+        if hwnds:
+            return hwnds[0]
+    except Exception:
+        pass
+    return None
+
+
+def move_hwnd_to_screen(hwnd, screen_x, screen_y, screen_w, screen_h, window_w=900, window_h=700):
+    """Move and resize a window to the center of the given screen."""
+    try:
+        target_x = screen_x + (screen_w - window_w) // 2
+        target_y = screen_y + (screen_h - window_h) // 2
+        if target_x < screen_x:
+            target_x = screen_x
+        if target_y < screen_y:
+            target_y = screen_y
+        ctypes.windll.user32.SetWindowPos(hwnd, 0, target_x, target_y, window_w, window_h, 0x0004)  # SWP_NOZORDER
+    except Exception:
+        pass
+
+
+def get_hwnd_rect(hwnd):
+    """Get window position and size as dict with keys x, y, w, h. Returns None on failure."""
+    try:
+        rect = wintypes.RECT()
+        if ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+            return {
+                "x": rect.left, "y": rect.top,
+                "w": rect.right - rect.left, "h": rect.bottom - rect.top
+            }
+    except Exception:
+        pass
+    return None
