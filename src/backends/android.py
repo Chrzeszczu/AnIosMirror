@@ -122,6 +122,7 @@ def pair_device(code, port, host=None):
 
 
 QUALITY_PRESETS = {
+    "ultra":  {"bit_rate": "100M", "max_size": 0,    "max_fps": 90, "encoder": ""},
     "best":   {"bit_rate": "50M",  "max_size": 0,    "max_fps": 60, "encoder": ""},
     "medium": {"bit_rate": "8M",   "max_size": 1920, "max_fps": 30, "encoder": ""},
     "low":    {"bit_rate": "2M",   "max_size": 1024, "max_fps": 15, "encoder": ""},

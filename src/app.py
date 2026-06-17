@@ -50,7 +50,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("AnIosMirror")
-        self.setFixedSize(520, 720)
+        self.setFixedSize(520, 800)
 
         self.android_devices = []
         self.airplay = AirPlayReceiver()
@@ -139,7 +139,7 @@ class MainWindow(QMainWindow):
         custom_layout = QFormLayout(self.custom_panel)
         custom_layout.setContentsMargins(4, 2, 4, 2)
         self.q_bitrate = QComboBox()
-        self.q_bitrate.addItems(["1M", "2M", "4M", "8M", "16M", "32M", "50M", "100M"])
+        self.q_bitrate.addItems(["1M", "2M", "4M", "8M", "16M", "32M", "50M", "100M", "200M"])
         self.q_bitrate.setCurrentText("8M")
         self.q_maxsize = QComboBox()
         self.q_maxsize.addItems(["0", "480", "720", "1024", "1440", "1920", "2560"])
@@ -382,7 +382,7 @@ class MainWindow(QMainWindow):
     def _populate_quality_combo(self):
         self.quality_combo.blockSignals(True)
         self.quality_combo.clear()
-        for name in ["best", "medium", "low"]:
+        for name in ["ultra", "best", "medium", "low"]:
             self.quality_combo.addItem(name)
         saved = sorted(self._quality_presets.keys())
         for name in saved:
@@ -399,14 +399,33 @@ class MainWindow(QMainWindow):
             return
         self._last_quality = text
         self._settings.setValue("quality/last", text)
-        self._update_custom_panel_visibility()
+        is_builtin = text in ad.QUALITY_PRESETS
         is_saved = text in self._quality_presets
-        self.delete_q_btn.setEnabled(is_saved)
-        self.save_q_btn.setText("Overwrite" if is_saved else "Save")
+        self.custom_panel.setVisible(not is_builtin or is_saved)
+        self.save_q_btn.setVisible(text == "Custom" or is_saved)
+        self.save_q_btn.setText("Overwrite" if is_saved else "Save As\u2026")
+        self.delete_q_btn.setVisible(is_saved)
+        if is_saved:
+            self._load_preset_into_panel(text)
+
+    def _load_preset_into_panel(self, name):
+        d = self._quality_presets.get(name)
+        if not d:
+            return
+        idx = self.q_bitrate.findText(str(d.get("bit_rate", "8M")))
+        if idx >= 0: self.q_bitrate.setCurrentIndex(idx)
+        idx = self.q_maxsize.findText(str(d.get("max_size", "0")))
+        if idx >= 0: self.q_maxsize.setCurrentIndex(idx)
+        idx = self.q_fps.findText(str(d.get("max_fps", "30")))
+        if idx >= 0: self.q_fps.setCurrentIndex(idx)
+        idx = self.q_encoder.findText(d.get("encoder", "Auto"))
+        if idx >= 0: self.q_encoder.setCurrentIndex(idx)
 
     def _update_custom_panel_visibility(self):
-        show = self.quality_combo.currentText() == "Custom"
-        self.custom_panel.setVisible(show)
+        text = self.quality_combo.currentText()
+        is_builtin = text in ad.QUALITY_PRESETS
+        is_saved = text in self._quality_presets
+        self.custom_panel.setVisible(not is_builtin or is_saved)
 
     def _save_quality_preset(self):
         text = self.quality_combo.currentText()
@@ -426,7 +445,6 @@ class MainWindow(QMainWindow):
             self._populate_quality_combo()
             self.quality_combo.setCurrentText(name)
         elif text in self._quality_presets:
-            old = self._quality_presets[text]
             if text in ad.QUALITY_PRESETS:
                 return  # can't overwrite built-in
             self._quality_presets[text] = {
@@ -537,7 +555,7 @@ class MainWindow(QMainWindow):
 
     def _get_control_quality_options(self):
         items = []
-        for name in ["best", "medium", "low"]:
+        for name in ["ultra", "best", "medium", "low"]:
             items.append(name)
         saved = sorted(self._quality_presets.keys())
         items.extend(saved)
