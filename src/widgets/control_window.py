@@ -44,6 +44,7 @@ class MirrorControlWindow(QWidget):
         self._side = "right"
         self._hook = None
         self._hook_proc = None
+        self._rec_start_time = None
 
         self._hwnd_moved.connect(self._track)
 
@@ -90,6 +91,16 @@ class MirrorControlWindow(QWidget):
         self.pause_btn.clicked.connect(self._toggle_pause)
         rec_row.addWidget(self.pause_btn)
         content_layout.addLayout(rec_row)
+
+        self._rec_time_label = QLabel("00:00")
+        self._rec_time_label.setStyleSheet("color: #e44; font-size: 11px; font-weight: bold;")
+        self._rec_time_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._rec_time_label.hide()
+        content_layout.addWidget(self._rec_time_label)
+
+        self._rec_timer = QTimer(self)
+        self._rec_timer.timeout.connect(self._update_rec_time)
+        self._rec_timer.setInterval(1000)
 
         content_layout.addStretch()
 
@@ -238,17 +249,24 @@ class MirrorControlWindow(QWidget):
                 return
             self._recording = True
             self._paused = False
+            self._rec_start_time = __import__('time').time()
             self.rec_btn.setText("Stop Recording")
             self.pause_btn.setEnabled(True)
             self.pause_btn.setText("Pause")
+            self._rec_time_label.setText("00:00")
+            self._rec_time_label.show()
+            self._rec_timer.start()
             self.status_message.emit(self._serial, "Recording started")
         else:
             filepath, error = ad.stop_recording(self._serial)
             self._recording = False
             self._paused = False
+            self._rec_start_time = None
             self.rec_btn.setText("Record")
             self.pause_btn.setEnabled(False)
             self.pause_btn.setText("Pause")
+            self._rec_timer.stop()
+            self._rec_time_label.hide()
             if filepath:
                 self.status_message.emit(self._serial, "Recording saved")
             else:
@@ -259,12 +277,20 @@ class MirrorControlWindow(QWidget):
             if ad.pause_recording(self._serial):
                 self._paused = True
                 self.pause_btn.setText("Resume")
+                self._rec_timer.stop()
                 self.status_message.emit(self._serial, "Recording paused")
         else:
             if ad.resume_recording(self._serial):
                 self._paused = False
                 self.pause_btn.setText("Pause")
+                self._rec_timer.start()
                 self.status_message.emit(self._serial, "Recording resumed")
+
+    def _update_rec_time(self):
+        if not self._rec_start_time:
+            return
+        elapsed = int(__import__('time').time() - self._rec_start_time)
+        self._rec_time_label.setText(f"{elapsed // 60:02d}:{elapsed % 60:02d}")
 
     def _track(self):
         if not self._hwnd:
