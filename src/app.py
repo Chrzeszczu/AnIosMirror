@@ -54,9 +54,9 @@ class MainWindow(QMainWindow):
         self._scan_worker = None
         self._settings = QSettings("AnIosMirror", "AnIosMirror")
         self._favorites = []
-        self._load_favorites()
 
         self._build_ui()
+        self._load_favorites()
         QTimer.singleShot(0, self._restore_geometry)
         self._check_tools()
 
@@ -223,6 +223,8 @@ class MainWindow(QMainWindow):
         self._refresh_favorites_list()
 
     def _refresh_favorites_list(self):
+        if not hasattr(self, "fav_list") or self.fav_list is None:
+            return
         self.fav_list.clear()
         for f in self._favorites:
             self.fav_list.addItem(f"{f['name']} ({f['ip']}:{f['port']})")
