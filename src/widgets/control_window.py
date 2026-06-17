@@ -1,19 +1,7 @@
 import ctypes
-from ctypes import wintypes
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QCheckBox, QComboBox
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from src.backends import android as ad
-
-_user32 = ctypes.windll.user32
-_WM_MIRROR_MOVED = _user32.RegisterWindowMessageW("AnIosMirror_TrackControl")
-
-WINEVENTPROC = ctypes.WINFUNCTYPE(
-    None, wintypes.HANDLE, wintypes.DWORD,
-    wintypes.HWND, wintypes.LONG, wintypes.LONG,
-    wintypes.DWORD, wintypes.DWORD,
-)
-_EVENT_OBJECT_LOCATIONCHANGE = 0x800B
-_WINEVENT_OUTOFCONTEXT = 0x0001
 
 
 class MirrorControlWindow(QWidget):
@@ -36,9 +24,6 @@ class MirrorControlWindow(QWidget):
         self._paused = False
         self._collapsed = False
         self._side = "right"
-        self._my_hwnd = None
-        self._hook = None
-        self._hook_proc = None
 
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
@@ -122,48 +107,11 @@ class MirrorControlWindow(QWidget):
         self._timer.start(50)
 
     def set_hwnd(self, hwnd):
-        self._uninstall_move_hook()
         self._hwnd = hwnd
-        self._my_hwnd = int(self.winId())
-        self._install_move_hook(hwnd)
         self._track()
         if self.aot.isChecked():
             ad.set_window_always_on_top_by_hwnd(hwnd, True)
             self._set_self_topmost(True)
-
-    def _install_move_hook(self, target_hwnd):
-        try:
-            proc = WINEVENTPROC(lambda hHook, event, hwnd, idObject, idChild, dwEventThread, dwmsEventTime: (
-                _user32.PostMessageW(self._my_hwnd, _WM_MIRROR_MOVED, 0, 0)
-                if hwnd == target_hwnd and idObject == 0 else None
-            ))
-            self._hook_proc = proc
-            _user32.SetWinEventHook.restype = wintypes.HANDLE
-            self._hook = _user32.SetWinEventHook(
-                _EVENT_OBJECT_LOCATIONCHANGE, _EVENT_OBJECT_LOCATIONCHANGE,
-                0, proc, 0, 0, _WINEVENT_OUTOFCONTEXT,
-            )
-        except Exception:
-            self._hook = None
-
-    def _uninstall_move_hook(self):
-        if self._hook:
-            try:
-                _user32.UnhookWinEvent(self._hook)
-            except Exception:
-                pass
-            self._hook = None
-        self._hook_proc = None
-
-    def nativeEvent(self, eventType, message):
-        try:
-            msg = wintypes.MSG.from_address(int(message))
-            if msg.message == _WM_MIRROR_MOVED:
-                self._track()
-                return True, 0
-        except Exception:
-            pass
-        return super().nativeEvent(eventType, message)
 
     def set_aot(self, enabled):
         self._apply_aot(enabled, emit=False)
@@ -298,7 +246,6 @@ class MirrorControlWindow(QWidget):
 
     def cleanup(self):
         self._timer.stop()
-        self._uninstall_move_hook()
         if self._recording:
             ad.stop_recording(self._serial)
         self._hwnd = None
