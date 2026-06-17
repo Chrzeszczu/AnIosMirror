@@ -258,7 +258,7 @@ class MirrorControlWindow(QWidget):
             self._rec_timer.start()
             self.status_message.emit(self._serial, "Recording started")
         else:
-            files, error = ad.stop_recording(self._serial)
+            result, error = ad.stop_recording(self._serial)
             self._recording = False
             self._paused = False
             self._rec_start_time = None
@@ -268,8 +268,10 @@ class MirrorControlWindow(QWidget):
             self.pause_btn.setText("Pause")
             self._rec_timer.stop()
             self._rec_time_label.hide()
-            if files:
-                self.status_message.emit(self._serial, f"Saved {len(files)} file(s)")
+            if isinstance(result, list):
+                self.status_message.emit(self._serial, f"Saved {len(result)} segment(s)")
+            elif result:
+                self.status_message.emit(self._serial, "Recording saved")
             else:
                 self.status_message.emit(self._serial, f"Record failed: {error}")
 

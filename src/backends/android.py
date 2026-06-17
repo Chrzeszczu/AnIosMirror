@@ -406,10 +406,12 @@ def resume_recording(serial, output_dir):
 
 
 def stop_recording(serial):
-    """Stop all segments, return list of file paths."""
+    """Stop all segments, return (file_info, error).
+    file_info is a single path if no pauses, or a merged path, or a list of paths.
+    """
     data = _recording_processes.get(serial)
     if not data:
-        return [], "Not recording"
+        return None, "Not recording"
     del _recording_processes[serial]
 
     files = []
@@ -419,7 +421,51 @@ def stop_recording(serial):
         if local:
             files.append(local)
     files.extend(data["segments"])
-    return files, None if files else "No files recorded"
+
+    if not files:
+        return None, "No files recorded"
+    if len(files) == 1:
+        return files[0], None
+    # Multiple segments → try merging
+    merged, err = _merge_segments(files)
+    if merged:
+        return merged, None
+    return files, f"Merging failed ({err}), {len(files)} segments saved"
+
+
+def _merge_segments(segments):
+    """Merge multiple MP4 segments into one via ffmpeg concat demuxer.
+    Returns (merged_path, None) or (None, error).
+    """
+    ffmpeg = get_tool_path("ffmpeg")
+    if not ffmpeg:
+        return None, "ffmpeg not found"
+
+    import tempfile, os
+    try:
+        list_fd, list_path = tempfile.mkstemp(suffix=".txt", prefix="concat_")
+        with os.fdopen(list_fd, "w") as f:
+            for seg in segments:
+                f.write(f"file '{seg}'" + "\n")
+        first = Path(segments[0])
+        merged_path = str(first.parent / f"{first.stem}_merged{first.suffix}")
+        result = subprocess.run(
+            [ffmpeg, "-f", "concat", "-safe", "0", "-i", list_path,
+             "-c", "copy", "-y", merged_path],
+            capture_output=True, text=True, timeout=120,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        if result.returncode != 0:
+            Path(merged_path).unlink(missing_ok=True)
+            return None, result.stderr.strip()[:200]
+        for seg in segments:
+            Path(seg).unlink(missing_ok=True)
+        return merged_path, None
+    finally:
+        try:
+            Path(list_path).unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 def is_recording(serial):
