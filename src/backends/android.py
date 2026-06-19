@@ -409,13 +409,14 @@ def capture_window_screenshot(hwnd, output_dir):
             bmp_info = ctypes.create_string_buffer(40)
             ctypes.windll.gdi32.GetDIBits(dc, hbitmap, 0, bh, None, bmp_info, 0)
             bpp = int.from_bytes(bmp_info[14:16], "little")
-            row_size = ((bw * bpp + 31) // 32) * 4
-            pixels = ctypes.create_string_buffer(row_size * abs(bh))
+            stride = ((bw * bpp + 31) // 32) * 4
+            pixels = ctypes.create_string_buffer(stride * abs(bh))
             ctypes.windll.gdi32.GetDIBits(dc, hbitmap, 0, bh,
                                            ctypes.byref(pixels), bmp_info, 0)
             ctypes.windll.user32.ReleaseDC(0, dc)
-            mode = "RGB" if bpp <= 24 else "RGBA"
-            img = Image.frombytes(mode, (bw, abs(bh)), pixels)
+            # GetDIBits returns BGR; swap to RGB via PIL raw decoder
+            img = Image.frombuffer("RGB", (bw, abs(bh)), pixels,
+                                   "raw", "BGR", stride)
             if bh > 0:
                 img = img.transpose(Image.FLIP_TOP_BOTTOM)
             return img
