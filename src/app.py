@@ -52,7 +52,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("AnIosMirror")
-        self.setFixedSize(520, 800)
+        self.setFixedWidth(520)
 
         self.android_devices = []
         self.airplay = AirPlayReceiver()
@@ -63,10 +63,13 @@ class MainWindow(QMainWindow):
         self._ios_control_bar = None
         self._quality_presets = {}
         self._last_quality = "medium"
+        self._ios_quality_presets = {}
+        self._ios_last_quality = "medium"
 
         self._build_ui()
         self._load_favorites()
         self._load_quality_settings()
+        self._load_ios_quality_settings()
         QTimer.singleShot(0, self._restore_geometry)
         self._check_tools()
 
@@ -203,6 +206,39 @@ class MainWindow(QMainWindow):
         btn_row2.addWidget(self.airplay_start_btn)
         btn_row2.addWidget(self.airplay_stop_btn)
         ios_layout.addLayout(btn_row2)
+
+        # iOS Quality section
+        ios_q_row = QHBoxLayout()
+        ios_q_row.addWidget(QLabel("Quality:"))
+        self.ios_quality_combo = QComboBox()
+        self.ios_quality_combo.currentTextChanged.connect(self._on_ios_quality_changed)
+        ios_q_row.addWidget(self.ios_quality_combo, 1)
+        self.ios_save_q_btn = QPushButton("Save")
+        self.ios_save_q_btn.setFixedWidth(50)
+        self.ios_save_q_btn.clicked.connect(self._save_ios_quality_preset)
+        ios_q_row.addWidget(self.ios_save_q_btn)
+        self.ios_delete_q_btn = QPushButton("Del")
+        self.ios_delete_q_btn.setFixedWidth(40)
+        self.ios_delete_q_btn.clicked.connect(self._delete_ios_quality_preset)
+        ios_q_row.addWidget(self.ios_delete_q_btn)
+        ios_layout.addLayout(ios_q_row)
+
+        # iOS custom quality panel
+        self.ios_custom_panel = QWidget()
+        ios_custom_layout = QFormLayout(self.ios_custom_panel)
+        ios_custom_layout.setContentsMargins(4, 2, 4, 2)
+        self.ios_q_res = QComboBox()
+        self.ios_q_res.addItems(["1920x1080@60", "1280x720@60", "1280x720@30", "854x480@24"])
+        self.ios_q_fps = QComboBox()
+        self.ios_q_fps.addItems(["30", "24", "60"])
+        self.ios_q_fps.setCurrentText("30")
+        self.ios_q_h265 = QComboBox()
+        self.ios_q_h265.addItems(["No", "Yes"])
+        ios_custom_layout.addRow("Resolution:", self.ios_q_res)
+        ios_custom_layout.addRow("FPS:", self.ios_q_fps)
+        ios_custom_layout.addRow("H.265:", self.ios_q_h265)
+        self.ios_custom_panel.hide()
+        ios_layout.addWidget(self.ios_custom_panel)
 
         ios_help = QLabel(
             "On iPhone: Control Center \u2192 Screen Mirroring \u2192 select AnIosMirror"
@@ -481,6 +517,145 @@ class MainWindow(QMainWindow):
             return dict(ad.QUALITY_PRESETS[text])
         return None
 
+    # ── iOS Quality ──────────────────────────────────────
+
+    def _load_ios_quality_settings(self):
+        self._ios_last_quality = self._settings.value("ios/quality/last", "medium")
+        raw = self._settings.value("ios/quality/saved", "{}")
+        if isinstance(raw, str):
+            try:
+                self._ios_quality_presets = json.loads(raw)
+            except Exception:
+                self._ios_quality_presets = {}
+        self._populate_ios_quality_combo()
+        self._restore_ios_custom_values()
+
+    def _restore_ios_custom_values(self):
+        res = self._settings.value("ios/quality/resolution", "1280x720@30")
+        fps = self._settings.value("ios/quality/fps", "30")
+        h265 = self._settings.value("ios/quality/h265", "No")
+        idx = self.ios_q_res.findText(res)
+        if idx >= 0: self.ios_q_res.setCurrentIndex(idx)
+        idx = self.ios_q_fps.findText(fps)
+        if idx >= 0: self.ios_q_fps.setCurrentIndex(idx)
+        idx = self.ios_q_h265.findText(h265)
+        if idx >= 0: self.ios_q_h265.setCurrentIndex(idx)
+
+    def _save_ios_custom_values(self):
+        self._settings.setValue("ios/quality/resolution", self.ios_q_res.currentText())
+        self._settings.setValue("ios/quality/fps", self.ios_q_fps.currentText())
+        self._settings.setValue("ios/quality/h265", self.ios_q_h265.currentText())
+
+    def _populate_ios_quality_combo(self):
+        self.ios_quality_combo.blockSignals(True)
+        self.ios_quality_combo.clear()
+        for name in ios_module.IOS_QUALITY_PRESETS:
+            self.ios_quality_combo.addItem(name)
+        saved = sorted(self._ios_quality_presets.keys())
+        for name in saved:
+            self.ios_quality_combo.addItem(name)
+        self.ios_quality_combo.addItem("Custom")
+        idx = self.ios_quality_combo.findText(self._ios_last_quality)
+        if idx >= 0:
+            self.ios_quality_combo.setCurrentIndex(idx)
+        self.ios_quality_combo.blockSignals(False)
+        self._update_ios_custom_panel_visibility()
+
+    def _on_ios_quality_changed(self, text):
+        if not text:
+            return
+        self._ios_last_quality = text
+        self._settings.setValue("ios/quality/last", text)
+        is_builtin = text in ios_module.IOS_QUALITY_PRESETS
+        is_saved = text in self._ios_quality_presets
+        self.ios_custom_panel.setVisible(not is_builtin or is_saved)
+        self.ios_save_q_btn.setVisible(text == "Custom" or is_saved)
+        self.ios_save_q_btn.setText("Overwrite" if is_saved else "Save As\u2026")
+        self.ios_delete_q_btn.setVisible(is_saved)
+        if is_saved:
+            self._load_ios_preset_into_panel(text)
+        if self.airplay.running:
+            quality = self._get_current_ios_quality()
+            self._cleanup_ios_control_bar()
+            try:
+                self.airplay.restart(quality)
+                self._ios_retry_find_and_attach()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", str(e))
+
+    def _load_ios_preset_into_panel(self, name):
+        d = self._ios_quality_presets.get(name)
+        if not d:
+            return
+        idx = self.ios_q_res.findText(str(d.get("resolution", "1280x720@30")))
+        if idx >= 0: self.ios_q_res.setCurrentIndex(idx)
+        idx = self.ios_q_fps.findText(str(d.get("fps", "30")))
+        if idx >= 0: self.ios_q_fps.setCurrentIndex(idx)
+        idx = self.ios_q_h265.findText("Yes" if d.get("h265") else "No")
+        if idx >= 0: self.ios_q_h265.setCurrentIndex(idx)
+
+    def _update_ios_custom_panel_visibility(self):
+        text = self.ios_quality_combo.currentText()
+        is_builtin = text in ios_module.IOS_QUALITY_PRESETS
+        is_saved = text in self._ios_quality_presets
+        self.ios_custom_panel.setVisible(not is_builtin or is_saved)
+
+    def _save_ios_quality_preset(self):
+        text = self.ios_quality_combo.currentText()
+        if text == "Custom":
+            name, ok = QInputDialog.getText(self, "Save Preset", "Preset name:")
+            if not ok or not name.strip():
+                return
+            name = name.strip()
+            d = {
+                "resolution": self.ios_q_res.currentText(),
+                "fps": int(self.ios_q_fps.currentText()),
+                "h265": self.ios_q_h265.currentText() == "Yes",
+            }
+            self._ios_quality_presets[name] = d
+            self._settings.setValue("ios/quality/saved", json.dumps(self._ios_quality_presets))
+            self._populate_ios_quality_combo()
+            self.ios_quality_combo.setCurrentText(name)
+        elif text in self._ios_quality_presets:
+            if text in ios_module.IOS_QUALITY_PRESETS:
+                return
+            self._ios_quality_presets[text] = {
+                "resolution": self.ios_q_res.currentText(),
+                "fps": int(self.ios_q_fps.currentText()),
+                "h265": self.ios_q_h265.currentText() == "Yes",
+            }
+            self._settings.setValue("ios/quality/saved", json.dumps(self._ios_quality_presets))
+
+    def _delete_ios_quality_preset(self):
+        text = self.ios_quality_combo.currentText()
+        if text in self._ios_quality_presets and text not in ios_module.IOS_QUALITY_PRESETS:
+            del self._ios_quality_presets[text]
+            self._settings.setValue("ios/quality/saved", json.dumps(self._ios_quality_presets))
+            self._populate_ios_quality_combo()
+
+    def _get_current_ios_quality(self):
+        text = self.ios_quality_combo.currentText()
+        if text == "Custom":
+            self._save_ios_custom_values()
+            return {
+                "resolution": self.ios_q_res.currentText(),
+                "fps": int(self.ios_q_fps.currentText()),
+                "h265": self.ios_q_h265.currentText() == "Yes",
+            }
+        if text in self._ios_quality_presets:
+            return dict(self._ios_quality_presets[text])
+        if text in ios_module.IOS_QUALITY_PRESETS:
+            return dict(ios_module.IOS_QUALITY_PRESETS[text])
+        return None
+
+    def _get_ios_control_quality_options(self):
+        items = []
+        for name in ios_module.IOS_QUALITY_PRESETS:
+            items.append(name)
+        saved = sorted(self._ios_quality_presets.keys())
+        items.extend(saved)
+        return items
+
     def _open_pair_dialog(self):
         dlg = PairDialog(self)
         if dlg.exec() == QDialog.DialogCode.Accepted:
@@ -642,8 +817,7 @@ class MainWindow(QMainWindow):
 
     def _airplay_start(self):
         try:
-            quality_name = self._settings.value("ios/quality", "medium")
-            quality = ios_module.IOS_QUALITY_PRESETS.get(quality_name)
+            quality = self._get_current_ios_quality()
             self.airplay.start(quality)
             self.airplay_status.setText("Running")
             self.airplay_status.setStyleSheet("color: green; font-weight: bold;")
@@ -667,13 +841,13 @@ class MainWindow(QMainWindow):
             pid = self.airplay.pid
             hwnd = ad.find_mirror_window_by_pid(pid) if pid else None
             if hwnd is None:
-                hwnd = ad.find_mirror_window_by_titles(["UxPlay", "uxplay", "AnIosMirror"])
+                hwnd = ad.find_mirror_window_by_titles(["UxPlay", "uxplay"])
             if hwnd is None:
                 QTimer.singleShot(300, lambda c=count + 1: attempt(c))
                 return
             ad.move_hwnd_to_screen_center(hwnd, sg.x(), sg.y(), sg.width(), sg.height())
-            quality_options = [k for k in ios_module.IOS_QUALITY_PRESETS]
-            quality_name = self._settings.value("ios/quality", "medium")
+            quality_options = self._get_ios_control_quality_options()
+            quality_name = self.ios_quality_combo.currentText()
             cw = MirrorControlWindow("iPhone", "ios", media_dir=MEDIA_DIR,
                                      quality_options=quality_options,
                                      current_quality=quality_name,
@@ -712,15 +886,21 @@ class MainWindow(QMainWindow):
             bar.deleteLater()
 
     def _on_ios_control_quality_changed(self, serial, quality_name):
-        if quality_name not in ios_module.IOS_QUALITY_PRESETS:
+        if quality_name in ios_module.IOS_QUALITY_PRESETS:
+            quality = dict(ios_module.IOS_QUALITY_PRESETS[quality_name])
+        elif quality_name in self._ios_quality_presets:
+            quality = dict(self._ios_quality_presets[quality_name])
+        else:
             return
-        self._settings.setValue("ios/quality", quality_name)
-        quality = ios_module.IOS_QUALITY_PRESETS[quality_name]
+        self._settings.setValue("ios/quality/last", quality_name)
         self._cleanup_ios_control_bar()
         try:
             self.airplay.restart(quality)
         except Exception:
             return
+        self.ios_quality_combo.blockSignals(True)
+        self.ios_quality_combo.setCurrentText(quality_name)
+        self.ios_quality_combo.blockSignals(False)
         self._ios_retry_find_and_attach()
 
     def _restore_geometry(self):
@@ -749,6 +929,9 @@ class MainWindow(QMainWindow):
         self._settings.setValue("quality/last", self._last_quality)
         self._settings.setValue("quality/saved", json.dumps(self._quality_presets))
         self._save_custom_values()
+        self._settings.setValue("ios/quality/last", self._ios_last_quality)
+        self._settings.setValue("ios/quality/saved", json.dumps(self._ios_quality_presets))
+        self._save_ios_custom_values()
         self._cleanup_ios_control_bar()
         for serial in list(self._control_bars.keys()):
             self._cleanup_control_bar(serial)
