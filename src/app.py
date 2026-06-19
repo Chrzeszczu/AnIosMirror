@@ -669,7 +669,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
 
-    def _ios_retry_find_and_attach(self, retries=30):
+    def _ios_retry_find_and_attach(self, retries=45):
         self.airplay_status.setText("Waiting for iPhone to connect...")
         screen = self.screen()
         if not screen:
@@ -678,11 +678,12 @@ class MainWindow(QMainWindow):
 
         def attempt(count=0):
             if count >= retries:
+                self.airplay_status.setText("iPhone not connected. Try again from your iPhone.")
                 return
             pid = self.airplay.pid
             hwnd = ad.find_mirror_window_by_pid(pid) if pid else None
             if hwnd is None:
-                hwnd = ad.find_mirror_window("UxPlay")
+                hwnd = ad.find_mirror_window_by_titles(["UxPlay", "uxplay", "AnIosMirror"])
             if hwnd is None:
                 QTimer.singleShot(300, lambda c=count + 1: attempt(c))
                 return
@@ -731,6 +732,7 @@ class MainWindow(QMainWindow):
         if not text or not self.airplay.running:
             return
         quality = ios_module.IOS_QUALITY_PRESETS.get(text)
+        self._cleanup_ios_control_bar()
         try:
             self.airplay.restart(quality)
             self._ios_retry_find_and_attach()

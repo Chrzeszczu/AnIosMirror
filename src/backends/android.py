@@ -293,15 +293,67 @@ def find_mirror_window(title_substr):
     return None
 
 
-def find_mirror_window_by_pid(pid):
-    """Find first visible window owned by process pid. Returns HWND or None."""
+def get_process_children(parent_pid):
+    """Return list of child PIDs for the given parent PID using Tool Help API."""
+    children = []
     try:
+        kernel32 = ctypes.windll.kernel32
+        TH32CS_SNAPPROCESS = 0x00000002
+        h = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
+        if h == -1:
+            return children
+        try:
+            PROCESSENTRY32 = 296
+            entry = bytearray(PROCESSENTRY32)
+            entry[0:4] = PROCESSENTRY32.to_bytes(4, "little")
+            while kernel32.Process32Next(h, ctypes.byref(ctypes.c_char.from_buffer(entry))):
+                th32ParentProcessID = int.from_bytes(entry[24:28], "little")
+                th32ProcessID = int.from_bytes(entry[8:12], "little")
+                if th32ParentProcessID == parent_pid:
+                    children.append(th32ProcessID)
+        finally:
+            kernel32.CloseHandle(h)
+    except Exception:
+        pass
+    return children
+
+
+def find_mirror_window_by_pid(pid, include_children=True):
+    """Find first visible window owned by process pid (and optionally its children).
+    Returns HWND or None."""
+    try:
+        pids = {pid}
+        if include_children:
+            pids.update(get_process_children(pid))
         hwnds = []
         def enum_cb(hwnd, _):
             window_pid = wintypes.DWORD()
             ctypes.windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(window_pid))
-            if window_pid.value == pid and ctypes.windll.user32.IsWindowVisible(hwnd):
+            if window_pid.value in pids and ctypes.windll.user32.IsWindowVisible(hwnd):
                 hwnds.append(hwnd)
+            return True
+        cb = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        ctypes.windll.user32.EnumWindows(cb(enum_cb), 0)
+        if hwnds:
+            return hwnds[0]
+    except Exception:
+        pass
+    return None
+
+
+def find_mirror_window_by_titles(titles):
+    """Find first visible window whose title contains any of the given substrings.
+    Returns HWND or None."""
+    try:
+        hwnds = []
+        lower = [t.lower() for t in titles]
+        def enum_cb(hwnd, _):
+            length = ctypes.windll.user32.GetWindowTextLengthW(hwnd) + 1
+            buf = ctypes.create_unicode_buffer(length)
+            ctypes.windll.user32.GetWindowTextW(hwnd, buf, length)
+            if any(s in buf.value.lower() for s in lower):
+                if ctypes.windll.user32.IsWindowVisible(hwnd):
+                    hwnds.append(hwnd)
             return True
         cb = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
         ctypes.windll.user32.EnumWindows(cb(enum_cb), 0)
