@@ -67,6 +67,26 @@ class MirrorControlWindow(QWidget):
                 border: 1px solid #555;
                 border-radius: 4px;
             }
+            QPushButton {
+                background-color: #3a3a3a;
+                color: #eee;
+                border: 1px solid #555;
+                border-radius: 3px;
+                padding: 4px 8px;
+                font-size: 10px;
+            }
+            QPushButton:hover {
+                background-color: #4a4a4a;
+                border-color: #6a6a6a;
+            }
+            QPushButton:pressed {
+                background-color: #5a5a5a;
+                border-color: #888;
+            }
+            QPushButton:disabled {
+                background-color: #2a2a2a;
+                color: #777;
+            }
         """)
 
         layout = QVBoxLayout(self)
@@ -93,6 +113,12 @@ class MirrorControlWindow(QWidget):
         self.screenshot_btn = QPushButton("Screenshot")
         self.screenshot_btn.clicked.connect(self._take_screenshot)
         content_layout.addWidget(self.screenshot_btn)
+
+        self._feedback_lbl = QLabel()
+        self._feedback_lbl.setStyleSheet("color: #4c4; font-size: 10px; font-weight: bold; padding: 0;")
+        self._feedback_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._feedback_lbl.hide()
+        content_layout.addWidget(self._feedback_lbl)
 
         rec_row = QHBoxLayout()
         self.rec_btn = QPushButton("Record")
@@ -264,23 +290,35 @@ class MirrorControlWindow(QWidget):
         if not self._collapsed:
             self._track()
 
+    def _show_feedback(self, text, success=True):
+        color = "#4c4" if success else "#e44"
+        self._feedback_lbl.setStyleSheet(f"color: {color}; font-size: 10px; font-weight: bold; padding: 0;")
+        self._feedback_lbl.setText(text)
+        self._feedback_lbl.show()
+        QTimer.singleShot(1500, self._feedback_lbl.hide)
+
     def _on_quality_changed(self, text):
         if text:
             self.quality_changed.emit(self._serial, text)
 
     def _take_screenshot(self):
         if not self._platform_dir or self._hwnd is None:
+            self._show_feedback("No target", False)
             return
         self.screenshot_btn.setEnabled(False)
+        self.screenshot_btn.setText(" ")
         if self._platform == "android":
             filepath, error = ad.take_screenshot(self._serial, self._platform_dir)
         else:
             filepath, error = ad.capture_window_screenshot(self._hwnd, self._platform_dir)
+        self.screenshot_btn.setText("Screenshot")
+        self.screenshot_btn.setEnabled(True)
         if filepath:
+            self._show_feedback("Saved!")
             self.status_message.emit(self._serial, "Screenshot saved")
         else:
+            self._show_feedback("Failed!", False)
             self.status_message.emit(self._serial, f"Screenshot failed: {error}")
-        self.screenshot_btn.setEnabled(True)
 
     def _toggle_recording(self):
         if not self._recording:
@@ -292,6 +330,7 @@ class MirrorControlWindow(QWidget):
             else:
                 filepath, error = ad.start_window_recording(self._hwnd, self._platform_dir)
             if error:
+                self._show_feedback("Record failed", False)
                 self.status_message.emit(self._serial, f"Record failed: {error}")
                 return
             self._recording = True
@@ -303,6 +342,7 @@ class MirrorControlWindow(QWidget):
             self._rec_time_label.setText("00:00")
             self._rec_time_label.show()
             self._rec_timer.start()
+            self._show_feedback("Recording")
             self.status_message.emit(self._serial, "Recording started")
         else:
             if self._platform == "android":
@@ -326,10 +366,13 @@ class MirrorControlWindow(QWidget):
             self._rec_timer.stop()
             self._rec_time_label.hide()
             if isinstance(result, list):
+                self._show_feedback(f"{len(result)} segments")
                 self.status_message.emit(self._serial, f"Saved {len(result)} segment(s)")
             elif result:
+                self._show_feedback("Saved!")
                 self.status_message.emit(self._serial, "Recording saved")
             else:
+                self._show_feedback("Failed!", False)
                 self.status_message.emit(self._serial, f"Record failed: {error}")
 
     def _toggle_pause(self):
@@ -342,16 +385,19 @@ class MirrorControlWindow(QWidget):
                 self._pause_start = __import__('time').time()
                 self.pause_btn.setText("Resume")
                 self._rec_timer.stop()
+                self._show_feedback("Paused")
                 self.status_message.emit(self._serial, "Recording paused")
             else:
                 path, error = ad.start_window_recording(self._hwnd, self._platform_dir)
                 if error:
+                    self._show_feedback("Resume failed", False)
                     self.status_message.emit(self._serial, f"Resume failed: {error}")
                 else:
                     self._paused = False
                     self._rec_start_time += __import__('time').time() - self._pause_start
                     self.pause_btn.setText("Pause")
                     self._rec_timer.start()
+                    self._show_feedback("Resumed")
                     self.status_message.emit(self._serial, "Recording resumed")
         else:
             if not self._paused:
@@ -361,8 +407,10 @@ class MirrorControlWindow(QWidget):
                     self._pause_start = __import__('time').time()
                     self.pause_btn.setText("Resume")
                     self._rec_timer.stop()
+                    self._show_feedback("Paused")
                     self.status_message.emit(self._serial, "Recording paused")
                 else:
+                    self._show_feedback("Pause failed", False)
                     self.status_message.emit(self._serial, f"Pause failed: {error}")
             else:
                 local, error = ad.resume_recording(self._serial, self._platform_dir)
@@ -371,8 +419,10 @@ class MirrorControlWindow(QWidget):
                     self._rec_start_time += __import__('time').time() - self._pause_start
                     self.pause_btn.setText("Pause")
                     self._rec_timer.start()
+                    self._show_feedback("Resumed")
                     self.status_message.emit(self._serial, "Recording resumed")
                 else:
+                    self._show_feedback("Resume failed", False)
                     self.status_message.emit(self._serial, f"Resume failed: {error}")
 
     def _update_rec_time(self):
