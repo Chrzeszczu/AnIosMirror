@@ -52,6 +52,7 @@ class MirrorControlWindow(QWidget):
         self._hook = None
         self._hook_proc = None
         self._rec_start_time = None
+        self._ios_segments = []
 
         self._hwnd_moved.connect(self._track)
 
@@ -285,6 +286,7 @@ class MirrorControlWindow(QWidget):
         if not self._recording:
             if not self._media_dir:
                 return
+            self._ios_segments = []
             if self._platform == "android":
                 filepath, error = ad.start_recording(self._serial, self._media_dir)
             else:
@@ -296,7 +298,7 @@ class MirrorControlWindow(QWidget):
             self._paused = False
             self._rec_start_time = __import__('time').time()
             self.rec_btn.setText("Stop Recording")
-            self.pause_btn.setEnabled(self._platform == "android")
+            self.pause_btn.setEnabled(True)
             self.pause_btn.setText("Pause")
             self._rec_time_label.setText("00:00")
             self._rec_time_label.show()
@@ -307,6 +309,13 @@ class MirrorControlWindow(QWidget):
                 result, error = ad.stop_recording(self._serial)
             else:
                 result, error = ad.stop_window_recording(self._hwnd)
+                if result:
+                    self._ios_segments.append(result)
+                    if len(self._ios_segments) > 1:
+                        result = list(self._ios_segments)
+                    else:
+                        result = self._ios_segments[0]
+                self._ios_segments = []
             self._recording = False
             self._paused = False
             self._rec_start_time = None
@@ -324,26 +333,47 @@ class MirrorControlWindow(QWidget):
                 self.status_message.emit(self._serial, f"Record failed: {error}")
 
     def _toggle_pause(self):
-        if not self._paused:
-            local, error = ad.pause_recording(self._serial)
-            if local:
+        if self._platform == "ios":
+            if not self._paused:
+                path, _ = ad.stop_window_recording(self._hwnd)
+                if path:
+                    self._ios_segments.append(path)
                 self._paused = True
                 self._pause_start = __import__('time').time()
                 self.pause_btn.setText("Resume")
                 self._rec_timer.stop()
                 self.status_message.emit(self._serial, "Recording paused")
             else:
-                self.status_message.emit(self._serial, f"Pause failed: {error}")
+                path, error = ad.start_window_recording(self._hwnd, self._media_dir)
+                if error:
+                    self.status_message.emit(self._serial, f"Resume failed: {error}")
+                else:
+                    self._paused = False
+                    self._rec_start_time += __import__('time').time() - self._pause_start
+                    self.pause_btn.setText("Pause")
+                    self._rec_timer.start()
+                    self.status_message.emit(self._serial, "Recording resumed")
         else:
-            local, error = ad.resume_recording(self._serial, self._media_dir)
-            if local:
-                self._paused = False
-                self._rec_start_time += __import__('time').time() - self._pause_start
-                self.pause_btn.setText("Pause")
-                self._rec_timer.start()
-                self.status_message.emit(self._serial, "Recording resumed")
+            if not self._paused:
+                local, error = ad.pause_recording(self._serial)
+                if local:
+                    self._paused = True
+                    self._pause_start = __import__('time').time()
+                    self.pause_btn.setText("Resume")
+                    self._rec_timer.stop()
+                    self.status_message.emit(self._serial, "Recording paused")
+                else:
+                    self.status_message.emit(self._serial, f"Pause failed: {error}")
             else:
-                self.status_message.emit(self._serial, f"Resume failed: {error}")
+                local, error = ad.resume_recording(self._serial, self._media_dir)
+                if local:
+                    self._paused = False
+                    self._rec_start_time += __import__('time').time() - self._pause_start
+                    self.pause_btn.setText("Pause")
+                    self._rec_timer.start()
+                    self.status_message.emit(self._serial, "Recording resumed")
+                else:
+                    self.status_message.emit(self._serial, f"Resume failed: {error}")
 
     def _update_rec_time(self):
         if not self._rec_start_time:
@@ -383,6 +413,9 @@ class MirrorControlWindow(QWidget):
             if self._platform == "android":
                 ad.stop_recording(self._serial)
             else:
-                ad.stop_window_recording(self._hwnd)
+                path, _ = ad.stop_window_recording(self._hwnd)
+                if path:
+                    self._ios_segments.append(path)
+                self._ios_segments = []
         self._hwnd = None
         self.hide()

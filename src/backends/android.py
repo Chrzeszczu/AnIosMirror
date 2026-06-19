@@ -388,7 +388,7 @@ def capture_window_screenshot(hwnd, output_dir):
     try:
         from datetime import datetime
         from pathlib import Path
-        from PIL import ImageGrab
+        from PIL import Image, ImageGrab
         now = datetime.now()
         date_str = now.strftime("%d-%m-%Y")
         time_str = now.strftime("%H-%M-%S")
@@ -404,6 +404,37 @@ def capture_window_screenshot(hwnd, output_dir):
         if w <= 0 or h <= 0:
             return None, "Window has no size"
 
+        # Method 1: BitBlt from desktop DC (handles DirectX windows via DWM)
+        try:
+            desktop_dc = ctypes.windll.user32.GetDC(0)
+            mem_dc = ctypes.windll.gdi32.CreateCompatibleDC(desktop_dc)
+            bitmap = ctypes.windll.gdi32.CreateCompatibleBitmap(desktop_dc, w, h)
+            old = ctypes.windll.gdi32.SelectObject(mem_dc, bitmap)
+            ctypes.windll.gdi32.BitBlt(mem_dc, 0, 0, w, h, desktop_dc,
+                                        rect.left, rect.top, 0x00CC0020)
+            bmp_info = ctypes.create_string_buffer(40)
+            ctypes.windll.gdi32.GetDIBits(desktop_dc, bitmap, 0, h, None,
+                                           bmp_info, 0)
+            bpp = int.from_bytes(bmp_info[14:16], "little")
+            row_size = ((w * bpp + 31) // 32) * 4
+            data_size = row_size * abs(h)
+            pixels = ctypes.create_string_buffer(data_size)
+            ctypes.windll.gdi32.GetDIBits(desktop_dc, bitmap, 0, h,
+                                           ctypes.byref(pixels), bmp_info, 0)
+            ctypes.windll.gdi32.SelectObject(mem_dc, old)
+            ctypes.windll.gdi32.DeleteObject(bitmap)
+            ctypes.windll.gdi32.DeleteDC(mem_dc)
+            ctypes.windll.user32.ReleaseDC(0, desktop_dc)
+            mode = "RGB" if bpp <= 24 else "RGBA"
+            img = Image.frombytes(mode, (w, abs(h)), pixels)
+            if h > 0:
+                img = img.transpose(Image.FLIP_TOP_BOTTOM)
+            img.save(filepath, "PNG")
+            return str(filepath), None
+        except Exception:
+            pass
+
+        # Method 2: PIL ImageGrab fallback
         img = ImageGrab.grab(bbox=(rect.left, rect.top, rect.right, rect.bottom))
         img.save(filepath, "PNG")
         return str(filepath), None
@@ -670,12 +701,10 @@ def start_window_recording(hwnd, output_dir):
     folder.mkdir(parents=True, exist_ok=True)
     filepath = folder / f"{time_str}_{date_str}.mp4"
 
-    title = _get_window_title(hwnd)
-    if not title:
-        return None, "Cannot determine window title"
-
     proc = subprocess.Popen(
-        [ffmpeg, "-f", "gdigrab", "-i", f"title={title}", "-y", str(filepath)],
+        [ffmpeg, "-f", "gdigrab", "-i", f"hwnd={int(hwnd)}",
+         "-c:v", "libx264", "-preset", "ultrafast",
+         "-pix_fmt", "yuv420p", "-y", str(filepath)],
         creationflags=subprocess.CREATE_NO_WINDOW,
     )
     _window_record_processes[hwnd] = {"proc": proc, "path": str(filepath)}
@@ -691,10 +720,10 @@ def stop_window_recording(hwnd):
     if proc.poll() is None:
         proc.terminate()
         try:
-            proc.wait(timeout=3)
+            proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
             proc.kill()
-            proc.wait(timeout=2)
+            proc.wait(timeout=3)
     return data["path"], None
 
 
