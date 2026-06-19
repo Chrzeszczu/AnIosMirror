@@ -382,9 +382,22 @@ def enum_visible_windows():
     return results
 
 
+def _get_client_area_rect(hwnd):
+    """Return (left, top, width, height) of window client area in screen coords."""
+    rect = wintypes.RECT()
+    if not ctypes.windll.user32.GetClientRect(hwnd, ctypes.byref(rect)):
+        return None
+    cw = rect.right
+    ch = rect.bottom
+    pt = wintypes.POINT(0, 0)
+    if not ctypes.windll.user32.ClientToScreen(hwnd, ctypes.byref(pt)):
+        return None
+    return pt.x, pt.y, cw, ch
+
+
 def capture_window_screenshot(hwnd, output_dir):
     """Capture a screenshot of any window by HWND. Saves as PNG.
-    Returns (filepath, None) or (None, error_message)."""
+    Uses client area only (excludes window frame)."""
     try:
         from datetime import datetime
         from pathlib import Path
@@ -396,12 +409,11 @@ def capture_window_screenshot(hwnd, output_dir):
         folder.mkdir(parents=True, exist_ok=True)
         filepath = folder / f"{time_str}_{date_str}.png"
 
-        rect = wintypes.RECT()
-        if not ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
-            return None, "Cannot get window rect"
-        w = rect.right - rect.left
-        h = rect.bottom - rect.top
-        if w <= 0 or h <= 0:
+        ca = _get_client_area_rect(hwnd)
+        if not ca:
+            return None, "Cannot get client rect"
+        cx, cy, cw, ch = ca
+        if cw <= 0 or ch <= 0:
             return None, "Window has no size"
 
         def _bitmap_to_pil(hbitmap, bw, bh):
@@ -414,7 +426,6 @@ def capture_window_screenshot(hwnd, output_dir):
             ctypes.windll.gdi32.GetDIBits(dc, hbitmap, 0, bh,
                                            ctypes.byref(pixels), bmp_info, 0)
             ctypes.windll.user32.ReleaseDC(0, dc)
-            # GetDIBits returns BGR; swap to RGB via PIL raw decoder
             img = Image.frombuffer("RGB", (bw, abs(bh)), pixels,
                                    "raw", "BGR", stride)
             if bh > 0:
@@ -426,14 +437,14 @@ def capture_window_screenshot(hwnd, output_dir):
             try:
                 desktop_dc = ctypes.windll.user32.GetDC(0)
                 mem_dc = ctypes.windll.gdi32.CreateCompatibleDC(desktop_dc)
-                hbitmap = ctypes.windll.gdi32.CreateCompatibleBitmap(desktop_dc, w, h)
+                hbitmap = ctypes.windll.gdi32.CreateCompatibleBitmap(desktop_dc, cw, ch)
                 old = ctypes.windll.gdi32.SelectObject(mem_dc, hbitmap)
                 ok = ctypes.windll.user32.PrintWindow(hwnd, mem_dc, flag)
                 ctypes.windll.gdi32.SelectObject(mem_dc, old)
                 ctypes.windll.gdi32.DeleteDC(mem_dc)
                 ctypes.windll.user32.ReleaseDC(0, desktop_dc)
                 if ok:
-                    img = _bitmap_to_pil(hbitmap, w, h)
+                    img = _bitmap_to_pil(hbitmap, cw, ch)
                     ctypes.windll.gdi32.DeleteObject(hbitmap)
                     img.save(str(filepath), "PNG")
                     return str(filepath), None
@@ -441,26 +452,26 @@ def capture_window_screenshot(hwnd, output_dir):
             except Exception:
                 pass
 
-        # Method 2: BitBlt from desktop DC
+        # Method 2: BitBlt from desktop DC (client area only)
         try:
             desktop_dc = ctypes.windll.user32.GetDC(0)
             mem_dc = ctypes.windll.gdi32.CreateCompatibleDC(desktop_dc)
-            bitmap = ctypes.windll.gdi32.CreateCompatibleBitmap(desktop_dc, w, h)
+            bitmap = ctypes.windll.gdi32.CreateCompatibleBitmap(desktop_dc, cw, ch)
             old = ctypes.windll.gdi32.SelectObject(mem_dc, bitmap)
-            ctypes.windll.gdi32.BitBlt(mem_dc, 0, 0, w, h, desktop_dc,
-                                        rect.left, rect.top, 0x00CC0020)
+            ctypes.windll.gdi32.BitBlt(mem_dc, 0, 0, cw, ch, desktop_dc,
+                                        cx, cy, 0x00CC0020)
             ctypes.windll.gdi32.SelectObject(mem_dc, old)
             ctypes.windll.gdi32.DeleteDC(mem_dc)
             ctypes.windll.user32.ReleaseDC(0, desktop_dc)
-            img = _bitmap_to_pil(bitmap, w, h)
+            img = _bitmap_to_pil(bitmap, cw, ch)
             ctypes.windll.gdi32.DeleteObject(bitmap)
             img.save(str(filepath), "PNG")
             return str(filepath), None
         except Exception:
             pass
 
-        # Method 3: PIL ImageGrab fallback
-        img = ImageGrab.grab(bbox=(rect.left, rect.top, rect.right, rect.bottom))
+        # Method 3: PIL ImageGrab fallback (client area only)
+        img = ImageGrab.grab(bbox=(cx, cy, cx + cw, cy + ch))
         img.save(str(filepath), "PNG")
         return str(filepath), None
     except Exception as e:
@@ -726,18 +737,17 @@ def start_window_recording(hwnd, output_dir):
     folder.mkdir(parents=True, exist_ok=True)
     filepath = folder / f"{time_str}_{date_str}.mp4"
 
-    rect = wintypes.RECT()
-    if not ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
-        return None, "Cannot get window rect"
-    w = rect.right - rect.left
-    h = rect.bottom - rect.top
-    if w <= 0 or h <= 0:
+    ca = _get_client_area_rect(hwnd)
+    if not ca:
+        return None, "Cannot get client rect"
+    cx, cy, cw, ch = ca
+    if cw <= 0 or ch <= 0:
         return None, "Window has no size"
 
     try:
         proc = subprocess.Popen(
             [ffmpeg, "-f", "dda", "-i", "0",
-             "-filter:v", f"crop={w}:{h}:{rect.left}:{rect.top}",
+             "-filter:v", f"crop={cw}:{ch}:{cx}:{cy}",
              "-c:v", "libx264", "-preset", "ultrafast",
              "-pix_fmt", "yuv420p", "-y", str(filepath)],
             creationflags=subprocess.CREATE_NO_WINDOW,

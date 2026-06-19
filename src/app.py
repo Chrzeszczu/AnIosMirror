@@ -52,7 +52,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("AnIosMirror")
-        self.setFixedWidth(520)
+        self.setFixedSize(520, 880)
 
         self.android_devices = []
         self.airplay = AirPlayReceiver()
@@ -446,7 +446,6 @@ class MainWindow(QMainWindow):
         self.delete_q_btn.setVisible(is_saved)
         if is_saved:
             self._load_preset_into_panel(text)
-        QTimer.singleShot(0, self._resize_to_fit)
 
     def _load_preset_into_panel(self, name):
         d = self._quality_presets.get(name)
@@ -575,7 +574,6 @@ class MainWindow(QMainWindow):
         self.ios_delete_q_btn.setVisible(is_saved)
         if is_saved:
             self._load_ios_preset_into_panel(text)
-        QTimer.singleShot(0, self._resize_to_fit)
         if self.airplay.running:
             quality = self._get_current_ios_quality()
             self._cleanup_ios_control_bar()
@@ -904,12 +902,6 @@ class MainWindow(QMainWindow):
         self.ios_quality_combo.setCurrentText(quality_name)
         self.ios_quality_combo.blockSignals(False)
         self._ios_retry_find_and_attach()
-
-    def _resize_to_fit(self):
-        try:
-            self.resize(self.width(), self.minimumSizeHint().height())
-        except Exception:
-            pass
 
     def _restore_geometry(self):
         try:
