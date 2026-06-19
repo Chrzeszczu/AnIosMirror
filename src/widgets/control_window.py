@@ -101,8 +101,6 @@ class MirrorControlWindow(QWidget):
         self.pause_btn = QPushButton("Pause")
         self.pause_btn.setEnabled(False)
         self.pause_btn.clicked.connect(self._toggle_pause)
-        if self._platform != "android":
-            self.pause_btn.hide()
         rec_row.addWidget(self.pause_btn)
         content_layout.addLayout(rec_row)
 
