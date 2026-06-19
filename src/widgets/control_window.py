@@ -114,11 +114,11 @@ class MirrorControlWindow(QWidget):
         self.screenshot_btn.clicked.connect(self._take_screenshot)
         content_layout.addWidget(self.screenshot_btn)
 
-        self._feedback_lbl = QLabel()
-        self._feedback_lbl.setStyleSheet("color: #4c4; font-size: 10px; font-weight: bold; padding: 0;")
+        # Floating overlay feedback (not in layout — no layout shift)
+        self._feedback_lbl = QLabel(self._content)
         self._feedback_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._feedback_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self._feedback_lbl.hide()
-        content_layout.addWidget(self._feedback_lbl)
 
         rec_row = QHBoxLayout()
         self.rec_btn = QPushButton("Record")
@@ -292,9 +292,18 @@ class MirrorControlWindow(QWidget):
 
     def _show_feedback(self, text, success=True):
         color = "#4c4" if success else "#e44"
-        self._feedback_lbl.setStyleSheet(f"color: {color}; font-size: 10px; font-weight: bold; padding: 0;")
+        self._feedback_lbl.setStyleSheet(
+            f"color: {color}; font-size: 10px; font-weight: bold;"
+            f"background: #2d2d2d; border: 1px solid {color}; border-radius: 3px;"
+            f"padding: 1px 6px;"
+        )
         self._feedback_lbl.setText(text)
+        self._feedback_lbl.adjustSize()
+        x = self._content.width() - self._feedback_lbl.width() - 4
+        y = 22
+        self._feedback_lbl.move(x, y)
         self._feedback_lbl.show()
+        self._feedback_lbl.raise_()
         QTimer.singleShot(1500, self._feedback_lbl.hide)
 
     def _on_quality_changed(self, text):
