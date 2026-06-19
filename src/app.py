@@ -840,10 +840,10 @@ class MainWindow(QMainWindow):
             if count >= retries:
                 self.airplay_status.setText("iPhone not connected. Try again from your iPhone.")
                 return
-            pid = self.airplay.pid
-            hwnd = ad.find_mirror_window_by_pid(pid) if pid else None
+            hwnd = ad.find_mirror_window_by_titles(["UxPlay", "uxplay"])
             if hwnd is None:
-                hwnd = ad.find_mirror_window_by_titles(["UxPlay", "uxplay"])
+                pid = self.airplay.pid
+                hwnd = ad.find_mirror_window_by_pid(pid) if pid else None
             if hwnd is None:
                 QTimer.singleShot(300, lambda c=count + 1: attempt(c))
                 return
