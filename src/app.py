@@ -204,20 +204,6 @@ class MainWindow(QMainWindow):
         btn_row2.addWidget(self.airplay_stop_btn)
         ios_layout.addLayout(btn_row2)
 
-        # iOS quality row
-        ios_q_row = QHBoxLayout()
-        ios_q_row.addWidget(QLabel("Quality:"))
-        self.ios_quality_combo = QComboBox()
-        self.ios_quality_combo.addItems(["high", "medium", "low"])
-        self.ios_quality_combo.setCurrentText(self._settings.value("ios/quality", "medium"))
-        self.ios_quality_combo.currentTextChanged.connect(self._on_ios_quality_changed)
-        ios_q_row.addWidget(self.ios_quality_combo, 1)
-        self.ios_screenshot_btn = QPushButton("Screenshot")
-        self.ios_screenshot_btn.setEnabled(False)
-        self.ios_screenshot_btn.clicked.connect(self._airplay_screenshot)
-        ios_q_row.addWidget(self.ios_screenshot_btn)
-        ios_layout.addLayout(ios_q_row)
-
         ios_help = QLabel(
             "On iPhone: Control Center \u2192 Screen Mirroring \u2192 select AnIosMirror"
         )
@@ -656,15 +642,13 @@ class MainWindow(QMainWindow):
 
     def _airplay_start(self):
         try:
-            quality_name = self.ios_quality_combo.currentText()
-            self._settings.setValue("ios/quality", quality_name)
+            quality_name = self._settings.value("ios/quality", "medium")
             quality = ios_module.IOS_QUALITY_PRESETS.get(quality_name)
             self.airplay.start(quality)
             self.airplay_status.setText("Running")
             self.airplay_status.setStyleSheet("color: green; font-weight: bold;")
             self.airplay_start_btn.setEnabled(False)
             self.airplay_stop_btn.setEnabled(True)
-            self.ios_screenshot_btn.setEnabled(True)
             self._ios_retry_find_and_attach()
         except Exception as e:
             QMessageBox.critical(self, "Error", str(e))
@@ -689,7 +673,7 @@ class MainWindow(QMainWindow):
                 return
             ad.move_hwnd_to_screen_center(hwnd, sg.x(), sg.y(), sg.width(), sg.height())
             quality_options = [k for k in ios_module.IOS_QUALITY_PRESETS]
-            quality_name = self.ios_quality_combo.currentText()
+            quality_name = self._settings.value("ios/quality", "medium")
             cw = MirrorControlWindow("iPhone", "ios", media_dir=MEDIA_DIR,
                                      quality_options=quality_options,
                                      current_quality=quality_name,
@@ -715,7 +699,6 @@ class MainWindow(QMainWindow):
         self.airplay_status.setStyleSheet("color: gray; font-weight: bold;")
         self.airplay_start_btn.setEnabled(True)
         self.airplay_stop_btn.setEnabled(False)
-        self.ios_screenshot_btn.setEnabled(False)
 
     def _airplay_stop(self):
         self._cleanup_ios_control_bar()
@@ -728,47 +711,17 @@ class MainWindow(QMainWindow):
             bar.cleanup()
             bar.deleteLater()
 
-    def _on_ios_quality_changed(self, text):
-        if not text or not self.airplay.running:
-            return
-        quality = ios_module.IOS_QUALITY_PRESETS.get(text)
-        self._cleanup_ios_control_bar()
-        try:
-            self.airplay.restart(quality)
-            self._ios_retry_find_and_attach()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", str(e))
-
     def _on_ios_control_quality_changed(self, serial, quality_name):
         if quality_name not in ios_module.IOS_QUALITY_PRESETS:
             return
+        self._settings.setValue("ios/quality", quality_name)
         quality = ios_module.IOS_QUALITY_PRESETS[quality_name]
         self._cleanup_ios_control_bar()
         try:
             self.airplay.restart(quality)
         except Exception:
             return
-        self.ios_quality_combo.blockSignals(True)
-        self.ios_quality_combo.setCurrentText(quality_name)
-        self.ios_quality_combo.blockSignals(False)
         self._ios_retry_find_and_attach()
-
-    def _airplay_screenshot(self):
-        pid = self.airplay.pid
-        if not pid:
-            self.android_status.setText("AirPlay receiver not running")
-            return
-        hwnd = ad.find_mirror_window_by_pid(pid)
-        if hwnd is None:
-            hwnd = ad.find_mirror_window("UxPlay")
-        if hwnd is None:
-            QMessageBox.critical(self, "Error", "Cannot find AirPlay window")
-            return
-        result, err = ad.capture_window_screenshot(hwnd, MEDIA_DIR)
-        if result:
-            self.airplay_status.setText(f"Screenshot: {Path(result).name}")
-        else:
-            QMessageBox.critical(self, "Screenshot Error", err)
 
     def _restore_geometry(self):
         try:
