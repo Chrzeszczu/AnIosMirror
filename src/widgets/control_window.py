@@ -119,6 +119,7 @@ class MirrorControlWindow(QWidget):
         self._feedback_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._feedback_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self._feedback_lbl.hide()
+        self._feedback_timer_id = None
 
         rec_row = QHBoxLayout()
         self.rec_btn = QPushButton("Record")
@@ -291,11 +292,12 @@ class MirrorControlWindow(QWidget):
             self._track()
 
     def _show_feedback(self, text, success=True):
+        if self._feedback_timer_id is not None:
+            self.killTimer(self._feedback_timer_id)
         color = "#4c4" if success else "#e44"
         self._feedback_lbl.setStyleSheet(
             f"color: {color}; font-size: 10px; font-weight: bold;"
-            f"background: #2d2d2d; border: 1px solid {color}; border-radius: 3px;"
-            f"padding: 1px 6px;"
+            f"padding: 0; background: transparent;"
         )
         self._feedback_lbl.setText(text)
         self._feedback_lbl.adjustSize()
@@ -304,7 +306,7 @@ class MirrorControlWindow(QWidget):
         self._feedback_lbl.move(x, y)
         self._feedback_lbl.show()
         self._feedback_lbl.raise_()
-        QTimer.singleShot(1500, self._feedback_lbl.hide)
+        self._feedback_timer_id = QTimer.singleShot(1500, self._feedback_lbl.hide)
 
     def _on_quality_changed(self, text):
         if text:
