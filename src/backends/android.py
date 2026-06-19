@@ -404,7 +404,43 @@ def capture_window_screenshot(hwnd, output_dir):
         if w <= 0 or h <= 0:
             return None, "Window has no size"
 
-        # Method 1: BitBlt from desktop DC (handles DirectX windows via DWM)
+        def _bitmap_to_pil(hbitmap, bw, bh):
+            dc = ctypes.windll.user32.GetDC(0)
+            bmp_info = ctypes.create_string_buffer(40)
+            ctypes.windll.gdi32.GetDIBits(dc, hbitmap, 0, bh, None, bmp_info, 0)
+            bpp = int.from_bytes(bmp_info[14:16], "little")
+            row_size = ((bw * bpp + 31) // 32) * 4
+            pixels = ctypes.create_string_buffer(row_size * abs(bh))
+            ctypes.windll.gdi32.GetDIBits(dc, hbitmap, 0, bh,
+                                           ctypes.byref(pixels), bmp_info, 0)
+            ctypes.windll.user32.ReleaseDC(0, dc)
+            mode = "RGB" if bpp <= 24 else "RGBA"
+            img = Image.frombytes(mode, (bw, abs(bh)), pixels)
+            if bh > 0:
+                img = img.transpose(Image.FLIP_TOP_BOTTOM)
+            return img
+
+        # Method 1: PrintWindow (DirectX-aware via DWM, Win8+)
+        for flag in (2, 0):
+            try:
+                desktop_dc = ctypes.windll.user32.GetDC(0)
+                mem_dc = ctypes.windll.gdi32.CreateCompatibleDC(desktop_dc)
+                hbitmap = ctypes.windll.gdi32.CreateCompatibleBitmap(desktop_dc, w, h)
+                old = ctypes.windll.gdi32.SelectObject(mem_dc, hbitmap)
+                ok = ctypes.windll.user32.PrintWindow(hwnd, mem_dc, flag)
+                ctypes.windll.gdi32.SelectObject(mem_dc, old)
+                ctypes.windll.gdi32.DeleteDC(mem_dc)
+                ctypes.windll.user32.ReleaseDC(0, desktop_dc)
+                if ok:
+                    img = _bitmap_to_pil(hbitmap, w, h)
+                    ctypes.windll.gdi32.DeleteObject(hbitmap)
+                    img.save(str(filepath), "PNG")
+                    return str(filepath), None
+                ctypes.windll.gdi32.DeleteObject(hbitmap)
+            except Exception:
+                pass
+
+        # Method 2: BitBlt from desktop DC
         try:
             desktop_dc = ctypes.windll.user32.GetDC(0)
             mem_dc = ctypes.windll.gdi32.CreateCompatibleDC(desktop_dc)
@@ -412,31 +448,19 @@ def capture_window_screenshot(hwnd, output_dir):
             old = ctypes.windll.gdi32.SelectObject(mem_dc, bitmap)
             ctypes.windll.gdi32.BitBlt(mem_dc, 0, 0, w, h, desktop_dc,
                                         rect.left, rect.top, 0x00CC0020)
-            bmp_info = ctypes.create_string_buffer(40)
-            ctypes.windll.gdi32.GetDIBits(desktop_dc, bitmap, 0, h, None,
-                                           bmp_info, 0)
-            bpp = int.from_bytes(bmp_info[14:16], "little")
-            row_size = ((w * bpp + 31) // 32) * 4
-            data_size = row_size * abs(h)
-            pixels = ctypes.create_string_buffer(data_size)
-            ctypes.windll.gdi32.GetDIBits(desktop_dc, bitmap, 0, h,
-                                           ctypes.byref(pixels), bmp_info, 0)
             ctypes.windll.gdi32.SelectObject(mem_dc, old)
-            ctypes.windll.gdi32.DeleteObject(bitmap)
             ctypes.windll.gdi32.DeleteDC(mem_dc)
             ctypes.windll.user32.ReleaseDC(0, desktop_dc)
-            mode = "RGB" if bpp <= 24 else "RGBA"
-            img = Image.frombytes(mode, (w, abs(h)), pixels)
-            if h > 0:
-                img = img.transpose(Image.FLIP_TOP_BOTTOM)
-            img.save(filepath, "PNG")
+            img = _bitmap_to_pil(bitmap, w, h)
+            ctypes.windll.gdi32.DeleteObject(bitmap)
+            img.save(str(filepath), "PNG")
             return str(filepath), None
         except Exception:
             pass
 
-        # Method 2: PIL ImageGrab fallback
+        # Method 3: PIL ImageGrab fallback
         img = ImageGrab.grab(bbox=(rect.left, rect.top, rect.right, rect.bottom))
-        img.save(filepath, "PNG")
+        img.save(str(filepath), "PNG")
         return str(filepath), None
     except Exception as e:
         return None, str(e)
@@ -689,7 +713,7 @@ def _get_window_title(hwnd):
 
 
 def start_window_recording(hwnd, output_dir):
-    """Record a window via ffmpeg gdigrab. Returns (filepath, None) or (None, error)."""
+    """Record a window via ffmpeg ddagrab (DXGI). Returns (filepath, None) or (None, error)."""
     ffmpeg = get_tool_path("ffmpeg")
     if not ffmpeg:
         return None, "ffmpeg not found"
@@ -701,12 +725,24 @@ def start_window_recording(hwnd, output_dir):
     folder.mkdir(parents=True, exist_ok=True)
     filepath = folder / f"{time_str}_{date_str}.mp4"
 
-    proc = subprocess.Popen(
-        [ffmpeg, "-f", "gdigrab", "-i", f"hwnd={int(hwnd)}",
-         "-c:v", "libx264", "-preset", "ultrafast",
-         "-pix_fmt", "yuv420p", "-y", str(filepath)],
-        creationflags=subprocess.CREATE_NO_WINDOW,
-    )
+    rect = wintypes.RECT()
+    if not ctypes.windll.user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        return None, "Cannot get window rect"
+    w = rect.right - rect.left
+    h = rect.bottom - rect.top
+    if w <= 0 or h <= 0:
+        return None, "Window has no size"
+
+    try:
+        proc = subprocess.Popen(
+            [ffmpeg, "-f", "dda", "-i", "0",
+             "-filter:v", f"crop={w}:{h}:{rect.left}:{rect.top}",
+             "-c:v", "libx264", "-preset", "ultrafast",
+             "-pix_fmt", "yuv420p", "-y", str(filepath)],
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+    except Exception:
+        return None, "ddagrab not supported; try a newer ffmpeg build"
     _window_record_processes[hwnd] = {"proc": proc, "path": str(filepath)}
     return str(filepath), None
 
